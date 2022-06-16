@@ -1,0 +1,6 @@
+mne>=1.0.3
+zipfile36
+heartpy>=1.2.7
+EDFlib-Python>=1.0.6
+pyedflib>=0.1.29
+pandas>=1.4.2
