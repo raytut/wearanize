@@ -11,7 +11,7 @@ Original Goals:
 4. (do so in python package
 
 Suggested code names for software:
-	wearanice - wearable data synchronized
+	wearanize - wearable data synchronized
 	wearalign - wearable data aligned
 
 Wearable devices and modalities/signals:
