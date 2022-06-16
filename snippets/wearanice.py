@@ -22,6 +22,14 @@ python.exe -m pip install mne
 python.exe -m pip install heartpy
 ...
 
+or to save the enironment package requirements (also unused)
+python.exe -m pip freeze > requirements.txt
+
+or use project specific used packages:
+pip install pipreqs
+pipreqs /path/to/this/project
+
+
 """
 # imports #
 
@@ -103,7 +111,7 @@ def parse_wearable_filepath_info(filepath):
 	return {'subject_id': subject_id, 'filepath':  filepath, 'period':  period, 'datatype':  datatype, 'device_wearable':  device_wearable, 'session': session}
 
 
-def read_edf_to_raw(filepath, preload=True, format="zmax_edf"):
+def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI']):
 	path_name_extension = fileparts(filepath)
 	if (path_name_extension[2]).lower() != ".edf":
 		warnings.warn("The filepath " + filepath + " does not seem to be an EDF file.")
@@ -119,11 +127,12 @@ def read_edf_to_raw(filepath, preload=True, format="zmax_edf"):
 		raw_avail_list = []
 		channel_avail_list = []
 
-		for iCh,name in enumerate(check_channel_filenames):
+		for iCh, name in enumerate(check_channel_filenames):
 			checkname = path + os.sep + name + '.edf'
 			if os.path.isfile(checkname):
-				raw_avail_list.append(read_edf_to_raw(checkname, format="edf"))
-				channel_avail_list.append(check_channel_filenames[iCh])
+				if not name in drop_zmax:
+					raw_avail_list.append(read_edf_to_raw(checkname, format="edf"))
+					channel_avail_list.append(check_channel_filenames[iCh])
 		print("zmax edf channels found:")
 		print(channel_avail_list)
 
@@ -360,52 +369,49 @@ def parse_wearable_data_write_csv(parentdirpath, filepath_csv_out, device='all')
 
 
 def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_in, filepath_csv_out, device='all'):
+	df_csv_in = pandas.read_csv(filepath_csv_in)
+	df_csv_in.reset_index()  # make sure indexes pair with number of rows
 
-	with open(filepath_csv_in, 'r', newline='') as csvfile:
-		with open(filepath_csv_out, 'w', newline='') as csvfile2:
-			reader = csv.reader(csvfile, delimiter=',')
-			next(reader, None)  # skip the header of the read in csv
+	with open(filepath_csv_out, 'w', newline='') as csvfile2:
+		writer = csv.writer(csvfile2, delimiter=',', quoting=csv.QUOTE_NONE)
 
-			writer = csv.writer(csvfile2, delimiter=',', quoting=csv.QUOTE_NONE)
-			writer.writerow(['subject_id', 'filepath', 'period', 'datatype', 'device_wearable', 'session', 'rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'sampling_rate_max_Hz'])
+		header_new = numpy.append(df_csv_in.columns.values, ['rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'sampling_rate_max_Hz'])
+		writer.writerow(header_new)
+		for i, row in df_csv_in.iterrows():
+			filepath = row['filepath']
+			device_wearable = row['device_wearable']
+			session = row['session']
 
-			for row in reader:
-				subject_id = row[0]
-				filepath = row[1]
-				period = row[2]
-				datatype = row[3]
-				device_wearable = row[4]
-				session = row[5]
+			rec_start_datetime = 'unretrieved'
+			rec_stop_datetime = 'unretrieved'
+			rec_duration_datetime = 'unretrieved'
+			sampling_rate_max_Hz = 'unretrieved'
 
-				rec_start_datetime = 'unretrieved'
-				rec_stop_datetime = 'unretrieved'
-				rec_duration_datetime = 'unretrieved'
-				sampling_rate_max_Hz = 'unretrieved'
+			try:
+				if device_wearable == 'zmx':
+					if session in ["1", "2", "3", "4", "5", "6", "7", "8"]:
+						filepath_full = parentdirpath + os.sep + filepath
+						raw = read_edf_to_raw_zipped(filepath_full, format="zmax_edf")
+						rec_start_datetime = raw.info['meas_date']
+						rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+						rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+						sampling_rate_max_Hz = raw.info['sfreq']
 
-				try:
-					if device_wearable == 'zmx':
-						if session in ["1", "2", "3", "4", "5", "6", "7", "8"]:
-							filepath_full = parentdirpath + os.sep + filepath
-							raw = read_edf_to_raw_zipped(filepath_full, format="zmax_edf")
-							rec_start_datetime = raw.info['meas_date']
-							rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
-							rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
-							sampling_rate_max_Hz = raw.info['sfreq']
+				elif device_wearable == 'emp': # TODO: Rayyan add some info for reach file
+					pass
+				elif device_wearable == 'apl':
+					pass
+				elif device_wearable == 'app':
+					pass
+			except:
+				print("cannot read infos from file: " + filepath_full)
+				rec_start_datetime = 'retrieval_failed'
+				rec_stop_datetime = 'retrieval_failed'
+				rec_duration_datetime = 'retrieval_failed'
+				sampling_rate_max_Hz = 'retrieval_failed'
 
-					elif device_wearable == 'emp': # TODO: Rayyan add some info for reach file
-						pass
-					elif device_wearable == 'apl':
-						pass
-					elif device_wearable == 'app':
-						pass
-				except:
-					print("cannot read infos from file: " + filepath_full)
-					rec_start_datetime = 'retrieval_failed'
-					rec_stop_datetime = 'retrieval_failed'
-					rec_duration_datetime = 'retrieval_failed'
-					sampling_rate_max_Hz = 'retrieval_failed'
-
-				writer.writerow([subject_id, filepath, period, datatype, device_wearable, session, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz])
+			row_new = numpy.append(row.values, [rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz])
+			writer.writerow(row_new)
 
 
 """
@@ -476,4 +482,5 @@ if __name__ == "__main__":
 
 	df = pandas.read_csv(wearable_file_structure_annotation_datetime_csv)
 	df.iloc[[0]]
+
 	print("tests finished")
