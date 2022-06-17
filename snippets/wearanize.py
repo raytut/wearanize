@@ -46,6 +46,10 @@ import EDFlib
 import pyedflib
 import shutil
 import pandas
+import statistics
+import scipy
+from sklearn.linear_model import LinearRegression
+import statsmodels
 
 import sys
 if sys.version_info >= (3, 6):
@@ -93,9 +97,8 @@ def safe_zip_dir_cleanup(temp_dir):
 def parse_wearable_filepath_info(filepath):
 	split_str = '_'
 
-	path_name_extension = fileparts(filepath)
+	path, name, extension = fileparts(filepath)
 
-	name = path_name_extension[1]
 	name_parts = name.split(split_str)
 
 	subject_id = name_parts[0]
@@ -112,8 +115,8 @@ def parse_wearable_filepath_info(filepath):
 
 
 def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI']):
-	path_name_extension = fileparts(filepath)
-	if (path_name_extension[2]).lower() != ".edf":
+	path, name, extension = fileparts(filepath)
+	if (extension).lower() != ".edf":
 		warnings.warn("The filepath " + filepath + " does not seem to be an EDF file.")
 	raw = None
 	if format == "zmax_edf":
@@ -121,20 +124,22 @@ def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BOD
 		"""
 		This reader is largely similar to the one for edf but gets and assembles all the EDFs in a folder if they are in the zmax data format
 		"""
-		path_name_extension = fileparts(filepath)
-		path = path_name_extension[0]
+		path, name, extension = fileparts(filepath)
 		check_channel_filenames = ['BATT', 'BODY TEMP', 'dX', 'dY', 'dZ', 'EEG L', 'EEG R', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_IR_AC', 'OXY_IR_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI']
 		raw_avail_list = []
 		channel_avail_list = []
-
+		channel_read_list = []
 		for iCh, name in enumerate(check_channel_filenames):
 			checkname = path + os.sep + name + '.edf'
 			if os.path.isfile(checkname):
+				channel_avail_list.append(check_channel_filenames[iCh])
 				if not name in drop_zmax:
 					raw_avail_list.append(read_edf_to_raw(checkname, format="edf"))
-					channel_avail_list.append(check_channel_filenames[iCh])
+					channel_read_list.append(check_channel_filenames[iCh])
 		print("zmax edf channels found:")
 		print(channel_avail_list)
+		print("zmax edf channels read in:")
+		print(channel_read_list)
 
 		# append the raws together
 		raw = raw_avail_list[0].add_channels(raw_avail_list[1:])
@@ -183,8 +188,8 @@ def edfWriteAnnotation(edfWriter, onset_in_seconds, duration_in_seconds, descrip
 
 
 def write_raw_to_edf(raw, filepath, format="zmax_edf"):
-	path_name_extension = fileparts(filepath)
-	if (path_name_extension[2]).lower() != ".edf":
+	path, name, extension = fileparts(filepath)
+	if (extension).lower() != ".edf":
 		warnings.warn("The filepath " + filepath + " does not seem to be an EDF file.")
 	if format == "zmax_edf":
 		channel_dimensions_zmax = {'BATT': 'V', 'BODY TEMP': "C", 'dX': "g", 'dY': "g", 'dZ': "g", 'EEG L': "uV", 'EEG R': "uV", 'LIGHT': "", 'NASAL L': "", 'NASAL R': "", 'NOISE': "", 'OXY_DARK_AC': "", 'OXY_DARK_DC': "", 'OXY_IR_AC': "", 'OXY_IR_DC': "", 'OXY_R_AC': "", 'OXY_R_DC': "", 'RSSI': ""}
@@ -271,6 +276,15 @@ def write_raw_to_edf_zipped(raw, zippath, format="zmax_edf", compresslevel=6):
 	zip_directory(temp_dir.name, zippath, deletefolder=True, compresslevel=compresslevel)
 	safe_zip_dir_cleanup(temp_dir)
 	return zippath
+
+def raw_zmax_data_quality(raw):
+		# the last second of Battery voltage
+		quality = None
+		try:
+			quality = statistics.mean(raw.get_data(picks=['BATT'])[-256:])
+		except:
+			pass
+		return quality
 
 
 def get_raw_by_date_and_time(raw, datetime, duration_seconds, offset_seconds=0.0): 
@@ -375,7 +389,7 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 	with open(filepath_csv_out, 'w', newline='') as csvfile2:
 		writer = csv.writer(csvfile2, delimiter=',', quoting=csv.QUOTE_NONE)
 
-		header_new = numpy.append(df_csv_in.columns.values, ['rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'sampling_rate_max_Hz'])
+		header_new = numpy.append(df_csv_in.columns.values, ['rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'sampling_rate_max_Hz', 'rec_quality'])
 		writer.writerow(header_new)
 		for i, row in df_csv_in.iterrows():
 			filepath = row['filepath']
@@ -386,6 +400,8 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 			rec_stop_datetime = 'unretrieved'
 			rec_duration_datetime = 'unretrieved'
 			sampling_rate_max_Hz = 'unretrieved'
+			rec_quality = 'unretrieved'
+
 
 			try:
 				if device_wearable == 'zmx':
@@ -396,7 +412,7 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 						rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
 						rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
 						sampling_rate_max_Hz = raw.info['sfreq']
-
+						rec_quality = raw_zmax_data_quality(raw)
 				elif device_wearable == 'emp': # TODO: Rayyan add some info for reach file
 					pass
 				elif device_wearable == 'apl':
@@ -409,10 +425,73 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 				rec_stop_datetime = 'retrieval_failed'
 				rec_duration_datetime = 'retrieval_failed'
 				sampling_rate_max_Hz = 'retrieval_failed'
-
-			row_new = numpy.append(row.values, [rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz])
+				rec_quality = 'retrieval_failed'
+			row_new = numpy.append(row.values, [rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 			writer.writerow(row_new)
 
+
+def chunks(a, n, nstep):
+	for i in range(0, len(a), nstep):
+		yield a[i:i + n]
+
+
+def find_consecutive_consistent_lags_index(lags, max_merge_lag_difference, lag_forward_pair_steps=1):
+	consecutive_consistent_lags = numpy.zeros(len(lags), dtype=bool)
+	for ilag in range(0, len(lags)-lag_forward_pair_steps):
+		for iforward in range(1,lag_forward_pair_steps+1):
+			lag = lags[ilag]
+			next_lag = lags[ilag+iforward]
+			if abs(lag-next_lag) <= max_merge_lag_difference:
+				consecutive_consistent_lags[ilag] = True
+				consecutive_consistent_lags[ilag+iforward] = True
+	return numpy.where(consecutive_consistent_lags)[0]
+
+
+def linear_regression(x, y):
+	X = x.reshape(-1,1)
+	model = LinearRegression().fit(X, y)
+	r_sq = model.score(X, y)
+	intercept = model.intercept_
+	slope = model.coef_
+	return r_sq, intercept, slope
+
+def sync_signals(signal_ref, signal_sync, chunk_size=256*60*10, chunk_step=256*60*5, lag_merge_window=256*60*20, max_merge_lag_difference=128, threshold_chunk_min_match=2, allow_anti_correlation=False):
+	sigchunks = chunks(signal_sync, chunk_size, chunk_step)
+	correlation_chunks_lags_and_max_val = numpy.array([[],[]])
+
+	lag_forward_pair_steps = lag_merge_window//chunk_step
+
+	for chunk in sigchunks:
+		correlation = scipy.signal.correlate(chunk, signal_ref, mode='full', method='auto')
+		lags = scipy.signal.correlation_lags(chunk.size, signal_ref.size, mode="full")
+		if allow_anti_correlation:
+			correlation = abs(correlation)
+		ind_max_correlation = numpy.argmax(correlation)
+
+		correlation_max_value = correlation[ind_max_correlation]
+		lag_add_to_chunk = -lags[ind_max_correlation]
+
+		correlation_chunks_lags_and_max_val = numpy.append(correlation_chunks_lags_and_max_val, numpy.array([[lag_add_to_chunk],[correlation_max_value]]),axis=1)
+
+	correlation_chunks_lags_and_max_val_relative = correlation_chunks_lags_and_max_val[0,] - range(0,len(correlation_chunks_lags_and_max_val[0,])*chunk_step,chunk_step)
+	consecutive_consistent_lags_index = find_consecutive_consistent_lags_index(lags=correlation_chunks_lags_and_max_val_relative, max_merge_lag_difference=max_merge_lag_difference, lag_forward_pair_steps=lag_forward_pair_steps)
+	n_matching_chunks = len(consecutive_consistent_lags_index)
+
+	lag = None
+	dilation = None
+	lag_after_dilation = None
+	sample_rate_adaptation_factor = None
+	if  n_matching_chunks >= threshold_chunk_min_match:
+		r_sq, intercept, slope = linear_regression(consecutive_consistent_lags_index, correlation_chunks_lags_and_max_val[0,consecutive_consistent_lags_index])
+		#y = slope*x + intercept
+		first_matching_chunk_index = numpy.min(consecutive_consistent_lags_index)
+		#first_matching_chunk_lag = correlation_chunks_lags_and_max_val[0,first_matching_chunk_index]
+		first_matching_chunk_lag = slope*first_matching_chunk_index + intercept
+		lag = first_matching_chunk_lag + first_matching_chunk_index*chunk_step
+		dilation = slope/chunk_step
+		lag_after_dilation = lag*dilation
+		sample_rate_adaptation_factor = 1/dilation
+	return lag, dilation, lag_after_dilation, sample_rate_adaptation_factor
 
 """
 	comment
@@ -426,13 +505,20 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 if __name__ == "__main__":
 	#--tests--#
 
-	"""
-	raw = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW.zip", format="zmax_edf")
-	write_raw_to_edf(raw, "Y:/HB/data/test_data_zmax/FW.merged.edf", format="zmax_edf")  # treat as a speacial zmax read EDF for export
-	write_raw_to_edf_zipped(raw, "Y:/HB/data/test_data_zmax/FW.merged.zip", format="zmax_edf") # treat as a speacial zmax read EDF for export
-	raw_reread = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW.merged.zip", format="edf")
-	write_raw_to_edf_zipped(raw, "Y:/HB/data/test_data_zmax/FW.merged.reread.zip", format="zmax_edf") # treat as a speacial zmax read EDF for export
 
+	raw = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW.zip", format="zmax_edf")
+	#write_raw_to_edf(raw, "Y:/HB/data/test_data_zmax/FW.merged.edf", format="zmax_edf")  # treat as a speacial zmax read EDF for export
+	#write_raw_to_edf_zipped(raw, "Y:/HB/data/test_data_zmax/FW.merged.zip", format="zmax_edf") # treat as a speacial zmax read EDF for export
+	#raw_reread = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW.merged.zip", format="edf")
+	#write_raw_to_edf_zipped(raw, "Y:/HB/data/test_data_zmax/FW.merged.reread.zip", format="zmax_edf") # treat as a speacial zmax read EDF for export
+
+	delay_ref = 16
+	signal_ref = raw.get_data(picks=['EEG L'],start=0+delay_ref, stop=256*60*10*3+delay_ref)[0,]
+	signal_sync = raw.get_data(picks=['EEG R'],start=0, stop=256*60*10*3)[0,]
+
+	lag, dilation, lag_after_dilation, sample_rate_adaptation_factor = sync_signals(signal_ref, signal_sync, chunk_size=256*60*10, chunk_step=256*60*5, lag_merge_window=256*60*20, max_merge_lag_difference=128, threshold_chunk_min_match=2, allow_anti_correlation=False)
+	print(lag)
+	"""
 
 	#raw.plot(duration=30)
 
