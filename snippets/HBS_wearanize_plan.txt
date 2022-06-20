@@ -8,7 +8,7 @@ Original Goals:
 1. preprocess raw data from wearable/mobile devices
 2. synchronize data from four wearable/mobile devices within a time-series database
 3. software to support researchers by facilitating data access requests
-4. (do so in python package
+4. (do so in python package)
 
 Suggested code names for software:
 	wearanize - wearable data synchronized
@@ -53,9 +53,9 @@ step 2.1: recording date and time extraction
 	
 step 2.2: data quality extraction
 	-> extending wearabout.csv by info of all four devices:
-	[... 'data_quality_indicator' ] (e.g. Battery status at end of zmax, SD of signals or flat lines
+	[... 'data_quality_indicator' ] (e.g. Battery status at end of zmax, SD of signals or flat lines)
 
-step 3: same internal representation for computation and feature generation:
+step 3: internal representation for computation and feature generation:
 	data is put into similar dataformat (python mne.io.Raw format)
 
 step 4: common feature/modalities generation (for synch by overlap)
