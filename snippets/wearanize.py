@@ -441,7 +441,7 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 								row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 								writer.writerow(row_new)
 					except:
-					      pass
+						pass
 				elif device_wearable == 'apl':
 					pass
 				elif device_wearable == 'app':
