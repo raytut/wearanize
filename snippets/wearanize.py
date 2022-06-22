@@ -527,6 +527,7 @@ def sync_signals(signal_ref, signal_sync, chunk_size=256*60*10, chunk_step=256*6
 	# check the dates if this is a standard date and if the order needs to be adapted.
 	# PPG to HR signal
 	# cross correlation, on 10 min snippets with linear extrapolation.
+	# read activPAL data: https://github.com/R-Broadley/python-uos-activpal
 """
 if __name__ == "__main__":
 	#--tests--#
