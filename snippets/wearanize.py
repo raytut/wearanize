@@ -54,6 +54,7 @@ import statsmodels
 import sys
 if sys.version_info >= (3, 6):
 	import zipfile
+	from zipfile import ZipFile
 else:
 	import zipfile36 as zipfile
 
@@ -348,14 +349,10 @@ def find_wearable_files(parentdirpath, wearable):
 	:param wearable:
 	:return:
 	"""
-	"""
-	:param wearable:
-	:return:
-	"""
 	filepath_list = []
 	if wearable == 'zmax':
 		wearable = 'zmx'
-	elif wearable == 'empathica':
+	elif wearable == 'empatica':
 		wearable = 'emp'
 	elif wearable == 'apl':
 		wearable = 'apl'
@@ -387,15 +384,16 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 	df_csv_in.reset_index()  # make sure indexes pair with number of rows
 
 	with open(filepath_csv_out, 'w', newline='') as csvfile2:
-		writer = csv.writer(csvfile2, delimiter=',', quoting=csv.QUOTE_NONE)
+		writer = csv.writer(csvfile2, delimiter=',', quoting=csv.QUOTE_NONE, escapechar='\\')
 
-		header_new = numpy.append(df_csv_in.columns.values, ['rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'sampling_rate_max_Hz', 'rec_quality'])
+		header_new = numpy.append(df_csv_in.columns.values, ['signal', 'rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'sampling_rate_max_Hz', 'rec_quality'])
 		writer.writerow(header_new)
 		for i, row in df_csv_in.iterrows():
 			filepath = row['filepath']
 			device_wearable = row['device_wearable']
 			session = row['session']
-
+			
+			signal='unretrieved'
 			rec_start_datetime = 'unretrieved'
 			rec_stop_datetime = 'unretrieved'
 			rec_duration_datetime = 'unretrieved'
@@ -407,14 +405,43 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 				if device_wearable == 'zmx':
 					if session in ["1", "2", "3", "4", "5", "6", "7", "8"]:
 						filepath_full = parentdirpath + os.sep + filepath
-						raw = read_edf_to_raw_zipped(filepath_full, format="zmax_edf")
+						raw = read_edf_to_raw_zipped(filepath, format="zmax_edf")
 						rec_start_datetime = raw.info['meas_date']
 						rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
 						rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
 						sampling_rate_max_Hz = raw.info['sfreq']
 						rec_quality = raw_zmax_data_quality(raw)
+						signal="zmx"
 				elif device_wearable == 'emp': # TODO: Rayyan add some info for reach file
-					pass
+				# Make this a try, to avoid the improper files and concatenated ones
+					try: 
+						# If we cant turn into integer, its probably right	
+						session=int(session)
+						filepath_full = parentdirpath + os.sep + filepath
+						emp_zip=zipfile.ZipFile(filepath_full)
+						tzinfo=datetime.timezone(datetime.timedelta(0))
+						# Estimate different parameters per signal
+						for signal_types in ['IBI.csv','BVP.csv', 'HR.csv','EDA.csv','TEMP.csv', 'ACC.csv']:
+							raw=pandas.read_csv(emp_zip.open(signal_types)) 
+							if signal_types=="IBI.csv":
+								signal=signal_types
+								rec_start_datetime=datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
+								rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw.iloc[-1,0]))
+								rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
+								sampling_rate_max_Hz = "custom"
+								rec_quality= raw[" IBI"].sum()/raw.iloc[-1,0]
+								row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
+								writer.writerow(row_new)
+							else:
+								signal=signal_types
+								rec_start_datetime=datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
+								rec_stop_datetime = rec_start_datetime + datetime.timedelta((((len(raw.index)-1)*(1/raw.iloc[0,0])/60)/60)/24)
+								rec_duration_datetime=(datetime.timedelta(((len(raw.index)-1)*(1/raw.iloc[0,0])/60)/60)/24)
+								sampling_rate_max_Hz=str(raw.iloc[0,0])
+								row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
+								writer.writerow(row_new)
+					except:
+					      pass
 				elif device_wearable == 'apl':
 					pass
 				elif device_wearable == 'app':
@@ -426,9 +453,8 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 				rec_duration_datetime = 'retrieval_failed'
 				sampling_rate_max_Hz = 'retrieval_failed'
 				rec_quality = 'retrieval_failed'
-			row_new = numpy.append(row.values, [rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
-			writer.writerow(row_new)
-
+				row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
+				writer.writerow(row_new)
 
 def chunks(a, n, nstep):
 	for i in range(0, len(a), nstep):
