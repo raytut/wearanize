@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jun 22 16:31:22 2022
+
+@author: raytut
+"""
+
+def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_in, filepath_csv_out, device='all'):
+	df_csv_in = pandas.read_csv(filepath_csv_in)
+	df_csv_in.reset_index()  # make sure indexes pair with number of rows
+	# Make a new output data frame with new coloumns
+	df_csv_out=pandas.read_csv(filepath_csv_in)
+	new_cols=['signal', 'rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'sampling_rate_max_Hz', 'rec_quality']
+	df_csv_out[new_cols]="unretrieved"
+	# We also need an extra data frame for the E4 data channels
+	df_csv_out_e4=pandas.DataFrame()
+	df_csv_out_e4[df_csv_out.columns]="unretrieved"
+	j=0 # Iterator for the e4 dataframe later
+	
+	# Loop over parsed files
+	for i, row in df_csv_out.iterrows():
+		filepath = row['filepath']
+		device_wearable = row['device_wearable']
+		session = row['session']
+
+		try:
+			if device_wearable == 'zmx':
+				if session in ["1", "2", "3", "4", "5", "6", "7", "8"]:
+					filepath_full = parentdirpath + os.sep + filepath
+					raw = read_edf_to_raw_zipped(filepath_full, format="zmax_edf")
+					df_csv_out.rec_start_datetime[i] = raw.info['meas_date']
+					df_csv_out.rec_stop_datetime[i] = df_csv_out.rec_start_datetime[i] + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+					df_csv_out.rec_duration_datetime[i] = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+					df_csv_out.sampling_rate_max_Hz[i] = raw.info['sfreq']
+					df_csv_out.rec_quality[i] = raw_zmax_data_quality(raw)
+					df_csv_out.signal[i]="zmx"
+		
+			elif device_wearable == 'emp': # TODO: Double check sampling times
+			# Make this a try, to avoid the improper files (jasper's) and concatenated ones
+				try: 
+					 # If we cant turn into integer, its probably right	
+ 					session=int(session)
+ 					filepath_full = parentdirpath + os.sep + filepath
+ 					emp_zip=zipfile.ZipFile(filepath_full)
+ 					tzinfo=datetime.timezone(datetime.timedelta(0))
+ 					
+				 	# Estimate different parameters per signal
+ 					for signal_types in ['IBI.csv','BVP.csv', 'HR.csv','EDA.csv','TEMP.csv', 'ACC.csv']:
+						 raw=pandas.read_csv(emp_zip.open(signal_types)) 
+						 if signal_types=="IBI.csv":
+ 							df_csv_out.signal[i]=signal_types
+ 							df_csv_out.rec_start_datetime[i]=datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
+ 							df_csv_out.rec_stop_datetime[i] = df_csv_out.rec_start_datetime[i] + datetime.timedelta(seconds=(raw.iloc[-1,0]))
+ 							df_csv_out.rec_duration_datetime=(df_csv_out.rec_stop_datetime[i] - df_csv_out.rec_start_datetime[i])
+ 							df_csv_out.sampling_rate_max_Hz[i] = "custom"
+ 							df_csv_out.rec_quality[i]= raw[" IBI"].sum()/raw.iloc[-1,0]
+						 else:
+							 df_csv_out_e4.loc[df_csv_out.index[j]]=df_csv_out.iloc[i]
+							 df_csv_out_e4.signal[j]=signal_types
+							 df_csv_out.sampling_rate_max_Hz[i] = raw.iloc[0,0]
+							 df_csv_out_e4.rec_start_datetime[j]=datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
+							 df_csv_out_e4.rec_stop_datetime[j] = df_csv_out_e4.rec_start_datetime[j] + datetime.timedelta((((len(raw.index)-1)*(1/raw.iloc[0,0])/60)/60)/24)
+							 df_csv_out_e4.rec_duration_datetime[i]=datetime.timedelta(((((len(raw.index)-1)*(1/raw.iloc[0,0]))/60)/60)/24)
+							 j=j+1
+				except:
+				      pass
+
+			elif device_wearable == 'apl':
+				pass
+			elif device_wearable == 'app':
+				pass
+		except:
+			print("cannot read infos from file: " + filepath_full)
+			df_csv_out.rec_start_datetime[i] = 'retrieval_failed'
+			df_csv_out.rec_stop_datetime[i] = 'retrieval_failed'
+			df_csv_out.rec_duration_datetime[i] = 'retrieval_failed'
+			df_csv_out.sampling_rate_max_Hz[i] = 'retrieval_failed'
+			df_csv_out.rec_quality[i]= 'retrieval_failed'
+	df_csv_out=pandas.concat([df_csv_out, df_csv_out_e4])		
+	
