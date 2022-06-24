@@ -528,8 +528,6 @@ def sync_reach(list_datetimes_paired, min_reach_duration_seconds=3600):
 		for i, datetimes_paired_test in enumerate(list_datetimes_paired):
 			for i2, datetimes_paired_match in enumerate(list_datetimes_paired[(i+1):]):
 				i2nd = i2+i+1
-				print(i)
-				print(i2nd)
 				if datetimes_paired_test[0] <= datetimes_paired_match[1]: # test starts before or with match
 					if (datetimes_paired_test[1] + min_reach_duration_datetime) < datetimes_paired_match[0]: # test does not reach match
 						continue
