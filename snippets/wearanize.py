@@ -481,6 +481,73 @@ def linear_regression(x, y):
 	slope = model.coef_
 	return r_sq, intercept, slope
 
+
+def datetime_overlap(list_datetime_start_stop, list2_datetime_start_stop):
+	latest_start = max(list_datetime_start_stop[0], list2_datetime_start_stop[0])
+	earliest_stop = min(list_datetime_start_stop[1], list2_datetime_start_stop[1])
+	delta = (earliest_stop - latest_start)
+	#overlap = max(datetime.timedelta(seconds=0), delta)
+	overlap = max(datetime.timedelta(seconds=0), delta)
+	return overlap
+
+
+
+def sync_reach(list_datetimes_paired, min_reach_duration_seconds=3600):
+	"""from a list of lists with paired start and stop (of events) datetimes
+		find all the overlaps in time considering and additional reach buffer.
+		this assumes the start and stop datetime pairs are already ascending in time, i.e. start <= stop
+		The list can be unordered with respect to the datetime pairs.
+		The list only contains the matching event pairs in reach as with their respective index in the original list
+		together with additional offset and real overlap info
+		A list is returned and contains further lists with each having the items:
+			index of the original start_stop pair in the list with the earliest start
+			index of the original start_stop pair in reach with the later start
+			the offset in datetime.timedelta to add to the first pair to match the second pair start time
+			the overlap in datetime.timedelta that the events share
+		The returned list is ordered ascending by the earliest start time of the matching pairs (i.e. the onese in reach)
+		Note that if overlap smaller than 0 is returned they might be in reach but actually do not overlap in time but are that far apart
+
+	Parameters
+	----------
+	%(list_datetimes_paired)s
+	%(min_reach_duration_seconds)s, by default is 3600 seconds (= 1 hour)
+
+	Returns
+	-------
+	list :
+			list[0]: index of the original start_stop pair in the list with the earliest start
+			list[1]:index of the original start_stop pair in reach with the later start
+			list[2]:the offset in datetime.timedelta to add to the first pair to match the second pair start time
+			list[3]:the overlap in datetime.timedelta that the events share
+	"""
+	list_indices_paired_offsetTo2nd_overlap = []
+	min_reach_duration_datetime = datetime.timedelta(seconds=min_reach_duration_seconds)
+	if len(list_datetimes_paired) < 2:
+		return []
+	else:
+		for i, datetimes_paired_test in enumerate(list_datetimes_paired):
+			for i2, datetimes_paired_match in enumerate(list_datetimes_paired[(i+1):]):
+				i2nd = i2+i+1
+				print(i)
+				print(i2nd)
+				if datetimes_paired_test[0] <= datetimes_paired_match[1]: # test starts before or with match
+					if (datetimes_paired_test[1] + min_reach_duration_datetime) < datetimes_paired_match[0]: # test does not reach match
+						continue
+					else: # test overlaps with match to its right
+						overlap_datetime = datetime_overlap(datetimes_paired_test,datetimes_paired_match)
+						offset_datetime = datetimes_paired_match[0]-datetimes_paired_test[0]
+						list_indices_paired_offsetTo2nd_overlap.append([i, i2nd, offset_datetime, overlap_datetime])
+				else: # test starts after match
+					if (datetimes_paired_match[1] + min_reach_duration_datetime) < datetimes_paired_test[0]: #match does not reach test
+						continue
+					else:
+						overlap_datetime = datetime_overlap(datetimes_paired_match,datetimes_paired_test)
+						offset_datetime = datetimes_paired_test[0]-datetimes_paired_match[0]
+						list_indices_paired_offsetTo2nd_overlap.append([i2nd, i, offset_datetime, overlap_datetime])
+		#return ordered ascending in start datetimes (and endtimes if equal) of the listed reached items
+		return sorted(list_indices_paired_offsetTo2nd_overlap, key=lambda i_i2_off_over: (list_datetimes_paired[i_i2_off_over[0]][0], list_datetimes_paired[i_i2_off_over[0]][1]), reverse=False)
+
+
 def sync_signals(signal_ref, signal_sync, chunk_size=256*60*10, chunk_step=256*60*5, lag_merge_window=256*60*20, max_merge_lag_difference=128, threshold_chunk_min_match=2, allow_anti_correlation=False):
 	sigchunks = chunks(signal_sync, chunk_size, chunk_step)
 	correlation_chunks_lags_and_max_val = numpy.array([[],[]])
@@ -755,6 +822,18 @@ def e4_concatenate(project_folder, sub_nr, resampling=None): # TODO: Rayyan Test
 if __name__ == "__main__":
 	#--tests--#
 
+	dt1_start = datetime.datetime(2000, 1, 1, 0,0,0)
+	dt1_stop = dt1_start + datetime.timedelta(hours=6)
+	dt2_start = datetime.datetime(2000, 1, 1, 6,0,0)
+	dt2_stop = dt2_start + datetime.timedelta(hours=6)
+	dt3_start = datetime.datetime(2000, 1, 1, 7,0,0)
+	dt3_stop = dt3_start + datetime.timedelta(hours=6)
+	dt4_start = datetime.datetime(2000, 1, 1, 7,0,1)
+	dt4_stop = dt4_start + datetime.timedelta(hours=6)
+	dt5_start = datetime.datetime(1999, 12, 31, 23, 59,  59)
+	dt5_stop = dt5_start + datetime.timedelta(hours=6)
+	list_datetimes_paired = [[dt1_start, dt1_stop], [dt2_start, dt2_stop], [dt3_start, dt3_stop], [dt4_start, dt4_stop], [dt5_start, dt5_stop]]
+	print(sync_reach(list_datetimes_paired, min_reach_duration_seconds=3600, timestep=0))
 
 	raw = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW.zip", format="zmax_edf")
 	#write_raw_to_edf(raw, "Y:/HB/data/test_data_zmax/FW.merged.edf", format="zmax_edf")  # treat as a speacial zmax read EDF for export
