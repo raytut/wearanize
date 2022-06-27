@@ -1,6 +1,7 @@
 - RapidHRV: an open-source toolbox for extracting heart rate and heart rate variability: https://peerj.com/articles/13147/
 - icoshift for aligning signals: https://pypi.org/project/icoshift/ or http://www.models.life.ku.dk/icoshift
-- Dynamic Time Warping for python: https://pypi.org/project/fastdtw/
+- Dynamic Time Warping for python: https://pypi.org/project/fastdtw/ or in matlab: https://de.mathworks.com/help/signal/ref/dtw.html
 - R wearables package with a lot of features to analyze Empatica E4 data: https://cran.rstudio.com/web/packages/wearables/wearables.pdf
 - A review of time-delay estimation techniques: https://ieeexplore.ieee.org/abstract/document/1272997
 - Time Delay Estimation Based on Mutual Information Estimation: https://ieeexplore.ieee.org/document/5300999/
+- 
