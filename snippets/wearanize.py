@@ -203,8 +203,42 @@ def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BOD
 # =============================================================================
 # E4 to mne.raw
 # =============================================================================
-
-
+def read_e4_to_raw(project_folder, emp_file, resample=None):
+	
+	# Read in the e4 file
+	emp_zip=zipfile.ZipFile(os.path.join(project_folder,emp_file))
+	channels=['BVP.csv', 'EDA.csv','TEMP.csv', 'ACC.csv']
+	mne_list=["unretrieved"]*len(channels)
+	# Check if single session or full recording
+	if "full" not in emp_file:
+		# Run over all signals
+		for i, signal_type in enumerate(channels):
+			if signal_type!="ACC.csv":
+				# Read signal
+				raw=pandas.read_csv(emp_zip.open(signal_type))
+				# create channel info for mne.info file
+				chanel=signal_type.split(".")
+				chanel=chanel[0].lower()
+				sfreq=int(raw.iloc[0,0])
+				timestamp=int(float(raw.columns[0]))
+				mne_info=mne.create_info(ch_names=[chanel], sfreq=sfreq, ch_types="misc")
+				# Create MNE Raw object and add to a list of objects
+				mne_obj=mne.io.RawArray([raw.iloc[1:,0]], mne_info, first_samp=timestamp)
+				mne_list[i]=mne_obj
+			else:
+				# Read signal
+				raw=pandas.read_csv(emp_zip.open(signal_type))
+				# create channel info for mne.info file
+				chanel=signal_type.split(".")
+				chanel=chanel[0].lower()
+				sfreq=int(raw.iloc[0,0])
+				timestamp=int(float(raw.columns[0]))
+				mne_info=mne.create_info(ch_names=["acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
+				# Create MNE Raw object and add to a list of objects
+				mne_obj=mne.io.RawArray([raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=timestamp)
+				mne_list[i]=mne_obj
+	e4_to_raw=[channels, mne_list]
+	return(e4_to_raw)
 
 # =============================================================================
 # 		
@@ -426,7 +460,7 @@ def parse_wearable_data_write_csv(parentdirpath, filepath_csv_out, device='all')
 			writer.writerow([info['subject_id'], info['filepath'], info['period'], info['datatype'], info['device_wearable'], info['session']])
 
 # =============================================================================
-# 
+# Parser: adds info
 # =============================================================================
 def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_in, filepath_csv_out, device='all'):
 	df_csv_in = pandas.read_csv(filepath_csv_in)
@@ -650,7 +684,7 @@ def sync_signals(signal_ref, signal_sync, chunk_size=256*60*10, chunk_step=256*6
 # =============================================================================
 #  E4concatenation function
 # =============================================================================
-def e4_concatenate(project_folder, sub_nr, resampling=None): # TODO: Rayyan Test one more time 
+def e4_concatenate(project_folder, sub_nr, resampling=None):  
 	
 	# Set sub nr as string
 	sub=str(sub_nr)
