@@ -267,7 +267,7 @@ def read_e4_to_raw(project_folder, emp_file, resample=None):
 				pandas.to_datetime(raw.time)
 				# create channel info for mne.info file
 				channel=signal_type.split(".")
-				channel=chanel[0].lower()
+				channel=channel[0].lower()
 				sfreq=sampling_frequencies[i]
 				mne_info=mne.create_info(ch_names=["timestamp_ux", "acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
 				# Create MNE Raw object and add to a list of objects
@@ -431,10 +431,30 @@ def get_raw_by_date_and_time(raw, datetime, duration_seconds, offset_seconds=0.0
 # =============================================================================
 # 
 # =============================================================================
-def acc_to_displacement(acc_x, acc_y, acc_z):
+def acc_to_displacement(acc_x, acc_y, acc_z, emp=False): #TO DO: Rayyan
 	
-
-
+	# If its an empatica signal, drop the first two rows
+	if emp==True:
+		acc_x=acc_x.iloc[1:]
+		acc_y=acc_y.iloc[1:]
+		acc_z=acc_z.iloc[1:]
+		
+	# Check that the input is a datafrom, or else convert
+	if type(acc_x)!=pandas.core.series.Series:
+		acc_x=pandas.DataFrame(acc_x)
+	if type(acc_y)!=pandas.core.series.Series:
+		acc_y=pandas.DataFrame(acc_y)
+	if type(acc_x)!=pandas.core.series.Series:
+		acc_z=pandas.DataFrame(acc_z)
+		
+	# Caclulate differences between consequetive samples
+	acc_x_dis=numpy.array(abs(acc_x.diff(-1)))
+	acc_y_dis=numpy.array(abs(acc_y.diff(-1)))
+	acc_z_dis=numpy.array(abs(acc_z.diff(-1)))
+	# Calculate mean displacement
+	net_displacement=numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)
+	return(net_displacement)
+	
 # =============================================================================
 # 
 # =============================================================================
@@ -1079,7 +1099,7 @@ def e4_concatenate(project_folder, sub_nr, resampling=None):
 #  E4 concatenation in parallel
 # =============================================================================
 
-def e4_concatente_par(project_folder, verbose=0): # TODO: Test
+def e4_concatente_par(project_folder, verbose=0): 
 	# Get list of subjects
 	sub_list=glob.glob(project_folder + "/sub-*")
 	Parallel(n_jobs=-2, verbose=verbose)(delayed(e4_concatenate)(project_folder, i) for i in sub_list)
