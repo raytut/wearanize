@@ -6,3 +6,4 @@ pyedflib>=0.1.29
 pandas>=1.4.2
 scikit-learn>=1.1.1
 statsmodels>=0.13.2
+rapidhrv>=0.2.4
