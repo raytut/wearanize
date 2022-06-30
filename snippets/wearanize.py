@@ -125,8 +125,11 @@ def parse_wearable_filepath_info(filepath):
 	subject_id = name_parts[0]
 	period = name_parts[1]
 	datatype = name_parts[2]
-	device_wearable = name_parts[3]
-
+	if name_parts[2]=="app-ema":
+		device_wearable = "app"
+	else:
+		device_wearable=name_parts[3]
+		
 	if name_parts.__len__() > 4:
 		session = split_str.join(name_parts[4:])
 	else:
@@ -444,6 +447,7 @@ def raw_detect_heart_rate_PPG(raw, ppg_channel):
 	Optionally add to the raw data as a new channel with nans where there is not heart rate detected or artifactious
 	"""
 
+	
 # =============================================================================
 # 
 # =============================================================================
@@ -761,16 +765,16 @@ def raw_get_integrated_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, res
 	acc_z=raw.get_data(ch_name_acc_z)
 	
 	# Caclulate differences between consequetive samples
-	acc_x_dis=numpy.array(abs(numpy.diff(acc_x)))
-	acc_y_dis=numpy.array(abs(numpy.diff(acc_y)))
-	acc_z_dis=numpy.array(abs(numpy.diff(acc_z)))
+	acc_x_dis=numpy.array(abs(numpy.diff(acc_x, prepend=acc_x[0][0])))
+	acc_y_dis=numpy.array(abs(numpy.diff(acc_y, prepend=acc_y[0][0])))
+	acc_z_dis=numpy.array(abs(numpy.diff(acc_z,prepend=acc_z[0][0])))
 	
 	# Calculate mean displacement
 	net_displacement=numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)
 	
 	# Create MNE Raw object and add to a list of objects
-	mne_info=mne.create_info(ch_names=[ "integrated_acc"], sfreq=sfreq, ch_types="misc")
-	mne_displacement=mne.io.RawArray([ net_displacement[0] ], mne_info)
+	mne_info=mne.create_info(ch_names=["acc_x", "acc_y", "acc_z", "integrated_acc"], sfreq=sfreq, ch_types="misc")
+	mne_displacement=mne.io.RawArray([acc_x[0], acc_y[0], acc_z[0], net_displacement[0] ], mne_info)
 	mne_displacement.set_meas_date(timestamp)
 	return(mne_displacement)
 
@@ -797,7 +801,7 @@ def get_signal(filepath, wearable, type = 'acc'):
 		raw=read_e4_to_raw(filepath)
 		if type == 'acc':
 			raw=raw[0][4]
-			raw_get_integrated_acc(raw, ch_name_acc_x="acc_x", ch_name_acc_y="acc_y", ch_name_acc_x=acc_x, resample_Hz=2)
+			raw_get_integrated_acc(raw, ch_name_acc_x="acc_x", ch_name_acc_y="acc_y", ch_name_acc_z="acc_z", resample_Hz=2)
 		elif type == 'hr':
 			raw=raw[0][0]
 	elif wearable == 'apl':
