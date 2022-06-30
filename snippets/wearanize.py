@@ -232,6 +232,7 @@ def read_e4_to_raw(project_folder, emp_file, resample=None):
 				mne_info=mne.create_info(ch_names=[channel], sfreq=sfreq, ch_types="misc")
 				# Create MNE Raw object and add to a list of objects
 				mne_obj=mne.io.RawArray([raw.iloc[1:,0]], mne_info, first_samp=timestamp)
+				mne_obj.set_meas_date(timestamp)
 				mne_list[i]=mne_obj
 			else:
 				# Read signal
@@ -244,6 +245,7 @@ def read_e4_to_raw(project_folder, emp_file, resample=None):
 				mne_info=mne.create_info(ch_names=["acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
 				# Create MNE Raw object and add to a list of objects
 				mne_obj=mne.io.RawArray([raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=timestamp)
+				mne_obj.set_meas_date(timestamp)
 				mne_list[i]=mne_obj
 	else:
 		# Run over all signals
@@ -428,33 +430,7 @@ def get_raw_by_date_and_time(raw, datetime, duration_seconds, offset_seconds=0.0
 	#check if all channels are present in all files
 	#fill the rest periods with nans/empty recordings and concatenate the recorings in time
 
-# =============================================================================
-# 
-# =============================================================================
-def acc_to_displacement(acc_x, acc_y, acc_z, emp=False): #TO DO: Rayyan
-	
-	# If its an empatica signal, drop the first two rows
-	if emp==True:
-		acc_x=acc_x.iloc[1:]
-		acc_y=acc_y.iloc[1:]
-		acc_z=acc_z.iloc[1:]
-		
-	# Check that the input is a datafrom, or else convert
-	if type(acc_x)!=pandas.core.series.Series:
-		acc_x=pandas.DataFrame(acc_x)
-	if type(acc_y)!=pandas.core.series.Series:
-		acc_y=pandas.DataFrame(acc_y)
-	if type(acc_x)!=pandas.core.series.Series:
-		acc_z=pandas.DataFrame(acc_z)
-		
-	# Caclulate differences between consequetive samples
-	acc_x_dis=numpy.array(abs(acc_x.diff(-1)))
-	acc_y_dis=numpy.array(abs(acc_y.diff(-1)))
-	acc_z_dis=numpy.array(abs(acc_z.diff(-1)))
-	# Calculate mean displacement
-	net_displacement=numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)
-	return(net_displacement)
-	
+
 # =============================================================================
 # 
 # =============================================================================
@@ -763,13 +739,42 @@ def sync_signals(signal_ref, signal_sync, fsample, chunk_size_seconds=60*10, chu
 	lag_after_dilation_seconds = lag_after_dilation/fsample
 	return lag_seconds, dilation, lag_after_dilation_seconds, sample_rate_adaptation_factor
 
+# =============================================================================
+# 
+# =============================================================================
 
-def raw_get_integrated_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, resample_Hz=None):
-	# TODO make integrated activity from the three channel data
-	# TODO also resample the activity to the required sampling rate
-	if resample_Hz is not None:
-		pass
+def raw_get_integrated_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, resample_Hz=None): #TODO: Rayyan
+	
+	timestamp=raw.info.get("meas_date")
+	if resample_Hz!=None:
+		raw=raw.resample(resample_Hz)
+		sfreq=resample_Hz
+	else: 
+		sfreq=raw.info.get("sfreq")
+	
+	# Get the data from channels
+	acc_x=raw.get_data(ch_name_acc_x)
+	acc_y=raw.get_data(ch_name_acc_y)
+	acc_z=raw.get_data(ch_name_acc_z)
+	
+	# Caclulate differences between consequetive samples
+	acc_x_dis=numpy.array(abs(numpy.diff(acc_x)))
+	acc_y_dis=numpy.array(abs(numpy.diff(acc_y)))
+	acc_z_dis=numpy.array(abs(numpy.diff(acc_z)))
+	
+	# Calculate mean displacement
+	net_displacement=numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)
+	
+	# Create MNE Raw object and add to a list of objects
+	mne_info=mne.create_info(ch_names=[ "integrated_acc"], sfreq=sfreq, ch_types="misc")
+	mne_displacement=mne.io.RawArray([ net_displacement[0] ], mne_info)
+	mne_displacement.set_meas_date(timestamp)
+	return(mne_displacement)
 
+
+# =============================================================================
+# 
+# =============================================================================
 
 def get_signal(filepath, wearable, type = 'acc'):
 	path, name, extension = fileparts(filepath)
@@ -797,7 +802,9 @@ def get_signal(filepath, wearable, type = 'acc'):
 			TypeError('activPAL does not have heart rate signal')
 
 
-
+# =============================================================================
+# 
+# =============================================================================
 def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all'):
 	df_csv_in = pandas.read_csv(filepath_csv_in)
 	df_csv_in.reset_index()  # make sure indexes pair with number of rows
