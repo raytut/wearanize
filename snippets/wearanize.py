@@ -209,16 +209,16 @@ def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BOD
 # =============================================================================
 # E4 to mne.raw
 # =============================================================================
-def read_e4_to_raw(project_folder, emp_file, resample=None):
+def read_e4_to_raw(filepath, resample=None):
 	
 	# Read in the e4 file
-	emp_zip=zipfile.ZipFile(os.path.join(project_folder,emp_file))
+	emp_zip=zipfile.ZipFile(os.path.join(filepath))
 	channels=['BVP.csv', 'HR.csv', 'EDA.csv','TEMP.csv', 'ACC.csv']
 	sampling_frequencies=[64, 1, 4, 4, 32]
 	mne_list=["unretrieved"]*len(channels)
 	
 	# Check if single session or full recording
-	if "full" not in emp_file:
+	if "full" not in filepath:
 		# Run over all signals
 		for i, signal_type in enumerate(channels):
 			if signal_type!="ACC.csv":
@@ -262,6 +262,7 @@ def read_e4_to_raw(project_folder, emp_file, resample=None):
 				raw.time=(((pandas.to_datetime(raw.time)) - pandas.Timestamp("1970-01-01")) // pandas.Timedelta('1s'))
 				timestamp=raw.iloc[0:1, 1]
 				mne_obj=mne.io.RawArray([ raw.iloc[1:,1], raw.iloc[1:,0]], mne_info, first_samp=timestamp)
+				mne_obj.set_meas_date(timestamp)
 				mne_list[i]=mne_obj
 			else:
 				# Read signal
@@ -276,6 +277,7 @@ def read_e4_to_raw(project_folder, emp_file, resample=None):
 				raw.time=(((pandas.to_datetime(raw.time)) - pandas.Timestamp("1970-01-01")) // pandas.Timedelta('1s'))
 				timestamp=raw.iloc[0:1, 3]
 				mne_obj=mne.io.RawArray([ raw.iloc[1:,3], raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=timestamp)
+				mne_obj.set_meas_date(timestamp)
 				mne_list[i]=mne_obj
 		
 	e4_to_raw=[mne_list]
@@ -466,7 +468,7 @@ def check_zmax_integrity():
 # =============================================================================
 def find_wearable_files(parentdirpath, wearable):
 	"""
-	finds all the wearable data from different wearables in the HB file structure given the parent path to the subject files
+	finds all the wearable data from different wearables + app data in the HB file structure given the parent path to the subject files
 	:param wearable:
 	:return:
 	"""
@@ -480,12 +482,13 @@ def find_wearable_files(parentdirpath, wearable):
 	else:
 		wearable = ''
 	filepath_list = glob.glob(parentdirpath + os.sep + "**" + os.sep + "sub-HB" + "*" + "_wrb_" + wearable + "*.*",recursive=True)
-
+	filepath_list = filepath_list + (glob.glob(parentdirpath + os.sep + "**" + os.sep + "pre*" + os.sep + "app" + os.sep + "*"))
 	# compatible with python versions < 3.10 remove the root_dir
 	for i, filepath in enumerate(filepath_list):
 		filepath_list[i] = filepath.replace(parentdirpath + os.sep,"")
 
 	return filepath_list
+
 
 # =============================================================================
 # 
@@ -791,10 +794,12 @@ def get_signal(filepath, wearable, type = 'acc'):
 		elif type == 'hr':
 			pass
 	elif wearable == 'emp':
+		raw=read_e4_to_raw(filepath)
 		if type == 'acc':
-			pass
+			raw=raw[0][4]
+			raw_get_integrated_acc(raw, ch_name_acc_x="acc_x", ch_name_acc_y="acc_y", ch_name_acc_x=acc_x, resample_Hz=2)
 		elif type == 'hr':
-			pass
+			raw=raw[0][0]
 	elif wearable == 'apl':
 		if type == 'acc':
 			pass
