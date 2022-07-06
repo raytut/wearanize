@@ -53,6 +53,7 @@ import argparse
 import pathlib
 import statsmodels
 import rapidhrv
+import pytz
 
 import sys
 if sys.version_info >= (3, 6):
@@ -286,6 +287,31 @@ def read_e4_to_raw(filepath, resample=None):
 	e4_to_raw=[mne_list]
 	return(e4_to_raw)
 
+# =============================================================================
+# 
+# =============================================================================
+
+def app_to_long(filepath): 
+	# Parse file info
+	file_info=parse_wearable_filepath_info(filepath)
+	# Check if EMA or not
+	if file_info["device_wearable"]!="app":
+		print("FILE NOT EMA APP DATA")
+	else:
+		# get session identifier for clean-up
+		prefix, session=str.split(file_info['period'], "-")
+		# read data for said session, get id files
+		df_ema=pandas.read_csv(file_info['filepath'])
+		df_ema_ids=df_ema.iloc[:,0:4]
+		df_ema_ids['session']=file_info['period']
+		# Clean up headers
+		df_ema=df_ema.filter(regex=(session +'$'),axis=1)
+		df_ema=df_ema.rename(columns = lambda x : str(x)[:-2])
+		# Rejoin with ema ids
+		df_ema=df_ema_ids.join(df_ema)
+		return(df_ema)
+	
+	
 # =============================================================================
 # 		
 # =============================================================================
@@ -551,8 +577,9 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 								print("Re-exported '%s' to '%s'" % (filepath, reexport_filepath))
 							except:
 								print("Failed to re-export '%s' to '%s' was not existent and was created" % (filepath, reexport_filepath))
-
 						signal="zmx_all"
+						row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
+						writer.writerow(row_new)
 				elif device_wearable == 'emp':
 				# Make this a try, to avoid the improper files and concatenated ones
 					try: 
@@ -585,8 +612,28 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 						pass
 				elif device_wearable == 'apl':
 					pass
-				elif device_wearable == 'app':
-					pass
+				
+				elif device_wearable == 'app': #TODO: Addd the EMA
+				
+					# read in full file
+					filepath_full = parentdirpath + os.sep + filepath
+					df_ema=app_to_long(filepath_full)
+					# Clean up date times
+					df_ema['EMA_timestamp__start_beep_']=pandas.to_datetime(df_ema['EMA_timestamp__start_beep_'], utc=True)
+					df_ema['EMA_timestamp__start_beep_']=df_ema.set_index(df_ema['EMA_timestamp__start_beep_']).tz_convert("Europe/Amsterdam").index
+					df_ema['EMA_timestamp_end_beep_']=pandas.to_datetime(df_ema['EMA_timestamp_end_beep_'], utc=True)
+					df_ema['EMA_timestamp_end_beep_']=df_ema.set_index(df_ema['EMA_timestamp_end_beep_']).tz_convert("Europe/Amsterdam").index
+					# Get info
+					signal = 'app'
+					rec_start_datetime = df_ema['EMA_timestamp__start_beep_'][0]
+					rec_stop_datetime = df_ema['EMA_timestamp_end_beep_'].iloc[-1]
+					rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
+					sampling_rate_max_Hz = "custom"
+					rec_quality= (df_ema['EMA_timestamp_end_beep_'] - df_ema['EMA_timestamp__start_beep_']).astype('timedelta64[ms]')
+					rec_quality=len(rec_quality[ rec_quality > (66*500)])/len(rec_quality)
+					row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
+					writer.writerow(row_new)
+					
 			except:
 				print("cannot read infos from file: " + filepath_full)
 				rec_start_datetime = 'retrieval_failed'
