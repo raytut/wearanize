@@ -52,7 +52,8 @@ from sklearn.linear_model import LinearRegression
 import argparse
 import pathlib
 import statsmodels
-
+import rapidhrv
+import pytz
 
 import sys
 if sys.version_info >= (3, 6):
@@ -126,8 +127,11 @@ def parse_wearable_filepath_info(filepath):
 	subject_id = name_parts[0]
 	period = name_parts[1]
 	datatype = name_parts[2]
-	device_wearable = name_parts[3]
-
+	if name_parts[2]=="app-ema":
+		device_wearable = "app"
+	else:
+		device_wearable=name_parts[3]
+		
 	if name_parts.__len__() > 4:
 		session = split_str.join(name_parts[4:])
 	else:
@@ -210,43 +214,105 @@ def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BOD
 # =============================================================================
 # E4 to mne.raw
 # =============================================================================
-def read_e4_to_raw(project_folder, emp_file, resample=None):
+def read_e4_to_raw(filepath, resample=None):
 	
 	# Read in the e4 file
-	emp_zip=zipfile.ZipFile(os.path.join(project_folder,emp_file))
-	channels=['BVP.csv', 'EDA.csv','TEMP.csv', 'ACC.csv']
+	emp_zip=zipfile.ZipFile(os.path.join(filepath))
+	channels=['BVP.csv', 'HR.csv', 'EDA.csv','TEMP.csv', 'ACC.csv']
+	sampling_frequencies=[64, 1, 4, 4, 32]
 	mne_list=["unretrieved"]*len(channels)
+	
 	# Check if single session or full recording
-	if "full" not in emp_file:
+	if "full" not in filepath:
 		# Run over all signals
 		for i, signal_type in enumerate(channels):
 			if signal_type!="ACC.csv":
 				# Read signal
 				raw=pandas.read_csv(emp_zip.open(signal_type))
 				# create channel info for mne.info file
-				chanel=signal_type.split(".")
-				chanel=chanel[0].lower()
+				channel=signal_type.split(".")
+				channel=channel[0].lower()
 				sfreq=int(raw.iloc[0,0])
 				timestamp=int(float(raw.columns[0]))
-				mne_info=mne.create_info(ch_names=[chanel], sfreq=sfreq, ch_types="misc")
+				mne_info=mne.create_info(ch_names=[channel], sfreq=sfreq, ch_types="misc")
 				# Create MNE Raw object and add to a list of objects
 				mne_obj=mne.io.RawArray([raw.iloc[1:,0]], mne_info, first_samp=timestamp)
+				mne_obj.set_meas_date(timestamp)
 				mne_list[i]=mne_obj
 			else:
 				# Read signal
 				raw=pandas.read_csv(emp_zip.open(signal_type))
 				# create channel info for mne.info file
-				chanel=signal_type.split(".")
-				chanel=chanel[0].lower()
+				channel=signal_type.split(".")
+				channel=channel[0].lower()
 				sfreq=int(raw.iloc[0,0])
 				timestamp=int(float(raw.columns[0]))
 				mne_info=mne.create_info(ch_names=["acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
 				# Create MNE Raw object and add to a list of objects
 				mne_obj=mne.io.RawArray([raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=timestamp)
+				mne_obj.set_meas_date(timestamp)
 				mne_list[i]=mne_obj
-	e4_to_raw=[channels, mne_list]
+	else:
+		# Run over all signals
+		for i, signal_type in enumerate(channels):
+			if signal_type!="ACC.csv":
+				# Read signal
+				raw=pandas.read_csv(emp_zip.open(emp_zip.filelist[0].filename+signal_type), sep="\t", index_col=0 )
+				# create channel info for mne.info file
+				channel=signal_type.split(".")
+				channel=channel[0].lower()
+				sfreq=sampling_frequencies[i]
+				mne_info=mne.create_info(ch_names=["timestamp_ux", channel], sfreq=sfreq, ch_types="misc")
+				# create timestamp array
+				raw.time=(((pandas.to_datetime(raw.time)) - pandas.Timestamp("1970-01-01")) // pandas.Timedelta('1s'))
+				timestamp=raw.iloc[0:1, 1]
+				mne_obj=mne.io.RawArray([ raw.iloc[1:,1], raw.iloc[1:,0]], mne_info, first_samp=timestamp)
+				mne_obj.set_meas_date(timestamp)
+				mne_list[i]=mne_obj
+			else:
+				# Read signal
+				raw=pandas.read_csv(emp_zip.open(emp_zip.filelist[0].filename+signal_type), sep="\t", index_col=0 )
+				pandas.to_datetime(raw.time)
+				# create channel info for mne.info file
+				channel=signal_type.split(".")
+				channel=channel[0].lower()
+				sfreq=sampling_frequencies[i]
+				mne_info=mne.create_info(ch_names=["timestamp_ux", "acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
+				# Create MNE Raw object and add to a list of objects
+				raw.time=(((pandas.to_datetime(raw.time)) - pandas.Timestamp("1970-01-01")) // pandas.Timedelta('1s'))
+				timestamp=raw.iloc[0:1, 3]
+				mne_obj=mne.io.RawArray([ raw.iloc[1:,3], raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=timestamp)
+				mne_obj.set_meas_date(timestamp)
+				mne_list[i]=mne_obj
+		
+	e4_to_raw=[mne_list]
 	return(e4_to_raw)
 
+# =============================================================================
+# 
+# =============================================================================
+
+def app_to_long(filepath): 
+	# Parse file info
+	file_info=parse_wearable_filepath_info(filepath)
+	# Check if EMA or not
+	if file_info["device_wearable"]!="app":
+		print("FILE NOT EMA APP DATA")
+	else:
+		# get session identifier for clean-up
+		prefix, session=str.split(file_info['period'], "-")
+		# read data for said session, get id files
+		df_ema=pandas.read_csv(file_info['filepath'])
+		df_ema_ids=df_ema.iloc[:,0:4]
+		df_ema_ids['session']=file_info['period']
+		# Clean up headers
+		df_ema=df_ema.filter(regex=(session +'$'),axis=1)
+		df_ema=df_ema.rename(columns = lambda x : str(x)[:-2])
+		# Rejoin with ema ids
+		df_ema=df_ema_ids.join(df_ema)
+		return(df_ema)
+	
+	
 # =============================================================================
 # 		
 # =============================================================================
@@ -397,6 +463,7 @@ def get_raw_by_date_and_time(raw, datetime, duration_seconds, offset_seconds=0.0
 	#check if all channels are present in all files
 	#fill the rest periods with nans/empty recordings and concatenate the recorings in time
 
+
 # =============================================================================
 # 
 # =============================================================================
@@ -408,6 +475,7 @@ def raw_detect_heart_rate_PPG(raw, ppg_channel):
 	Optionally add to the raw data as a new channel with nans where there is not heart rate detected or artifactious
 	"""
 
+	
 # =============================================================================
 # 
 # =============================================================================
@@ -432,7 +500,7 @@ def check_zmax_integrity():
 # =============================================================================
 def find_wearable_files(parentdirpath, wearable):
 	"""
-	finds all the wearable data from different wearables in the HB file structure given the parent path to the subject files
+	finds all the wearable data from different wearables + app data in the HB file structure given the parent path to the subject files
 	:param wearable:
 	:return:
 	"""
@@ -446,12 +514,13 @@ def find_wearable_files(parentdirpath, wearable):
 	else:
 		wearable = ''
 	filepath_list = glob.glob(parentdirpath + os.sep + "**" + os.sep + "sub-HB" + "*" + "_wrb_" + wearable + "*.*",recursive=True)
-
+	filepath_list = filepath_list + (glob.glob(parentdirpath + os.sep + "**" + os.sep + "pre*" + os.sep + "app" + os.sep + "*"))
 	# compatible with python versions < 3.10 remove the root_dir
 	for i, filepath in enumerate(filepath_list):
 		filepath_list[i] = filepath.replace(parentdirpath + os.sep,"")
 
 	return filepath_list
+
 
 # =============================================================================
 # 
@@ -510,8 +579,9 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 								print("Re-exported '%s' to '%s'" % (filepath, reexport_filepath))
 							except:
 								print("Failed to re-export '%s' to '%s' was not existent and was created" % (filepath, reexport_filepath))
-
 						signal="zmx_all"
+						row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
+						writer.writerow(row_new)
 				elif device_wearable == 'emp':
 				# Make this a try, to avoid the improper files and concatenated ones
 					try: 
@@ -544,8 +614,28 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 						pass
 				elif device_wearable == 'apl':
 					pass
-				elif device_wearable == 'app':
-					pass
+				
+				elif device_wearable == 'app': #TODO: Addd the EMA
+				
+					# read in full file
+					filepath_full = parentdirpath + os.sep + filepath
+					df_ema=app_to_long(filepath_full)
+					# Clean up date times
+					df_ema['EMA_timestamp__start_beep_']=pandas.to_datetime(df_ema['EMA_timestamp__start_beep_'], utc=True)
+					df_ema['EMA_timestamp__start_beep_']=df_ema.set_index(df_ema['EMA_timestamp__start_beep_']).tz_convert("Europe/Amsterdam").index
+					df_ema['EMA_timestamp_end_beep_']=pandas.to_datetime(df_ema['EMA_timestamp_end_beep_'], utc=True)
+					df_ema['EMA_timestamp_end_beep_']=df_ema.set_index(df_ema['EMA_timestamp_end_beep_']).tz_convert("Europe/Amsterdam").index
+					# Get info
+					signal = 'app'
+					rec_start_datetime = df_ema['EMA_timestamp__start_beep_'][0]
+					rec_stop_datetime = df_ema['EMA_timestamp_end_beep_'].iloc[-1]
+					rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
+					sampling_rate_max_Hz = "custom"
+					rec_quality= (df_ema['EMA_timestamp_end_beep_'] - df_ema['EMA_timestamp__start_beep_']).astype('timedelta64[ms]')
+					rec_quality=len(rec_quality[ rec_quality > (66*500)])/len(rec_quality)
+					row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
+					writer.writerow(row_new)
+					
 			except:
 				print("cannot read infos from file: " + filepath_full)
 				rec_start_datetime = 'retrieval_failed'
@@ -705,13 +795,42 @@ def sync_signals(signal_ref, signal_sync, fsample, chunk_size_seconds=60*10, chu
 	lag_after_dilation_seconds = lag_after_dilation/fsample
 	return lag_seconds, dilation, lag_after_dilation_seconds, sample_rate_adaptation_factor
 
+# =============================================================================
+# 
+# =============================================================================
 
-def raw_get_integrated_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, resample_Hz=None):
-	# TODO make integrated activity from the three channel data
-	# TODO also resample the activity to the required sampling rate
-	if resample_Hz is not None:
-		pass
+def raw_get_integrated_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, resample_Hz=None): #TODO: Rayyan
+	
+	timestamp=raw.info.get("meas_date")
+	if resample_Hz!=None:
+		raw=raw.resample(resample_Hz)
+		sfreq=resample_Hz
+	else: 
+		sfreq=raw.info.get("sfreq")
+	
+	# Get the data from channels
+	acc_x=raw.get_data(ch_name_acc_x)
+	acc_y=raw.get_data(ch_name_acc_y)
+	acc_z=raw.get_data(ch_name_acc_z)
+	
+	# Caclulate differences between consequetive samples
+	acc_x_dis=numpy.array(abs(numpy.diff(acc_x, prepend=acc_x[0][0])))
+	acc_y_dis=numpy.array(abs(numpy.diff(acc_y, prepend=acc_y[0][0])))
+	acc_z_dis=numpy.array(abs(numpy.diff(acc_z,prepend=acc_z[0][0])))
+	
+	# Calculate mean displacement
+	net_displacement=numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)
+	
+	# Create MNE Raw object and add to a list of objects
+	mne_info=mne.create_info(ch_names=["acc_x", "acc_y", "acc_z", "integrated_acc"], sfreq=sfreq, ch_types="misc")
+	mne_displacement=mne.io.RawArray([acc_x[0], acc_y[0], acc_z[0], net_displacement[0] ], mne_info)
+	mne_displacement.set_meas_date(timestamp)
+	return(mne_displacement)
 
+
+# =============================================================================
+# 
+# =============================================================================
 
 def get_signal(filepath, wearable, type = 'acc'):
 	path, name, extension = fileparts(filepath)
@@ -728,10 +847,12 @@ def get_signal(filepath, wearable, type = 'acc'):
 		elif type == 'hr':
 			pass
 	elif wearable == 'emp':
+		raw=read_e4_to_raw(filepath)
 		if type == 'acc':
-			pass
+			raw=raw[0][4]
+			raw_get_integrated_acc(raw, ch_name_acc_x="acc_x", ch_name_acc_y="acc_y", ch_name_acc_z="acc_z", resample_Hz=2)
 		elif type == 'hr':
-			pass
+			raw=raw[0][0]
 	elif wearable == 'apl':
 		if type == 'acc':
 			pass
@@ -739,7 +860,9 @@ def get_signal(filepath, wearable, type = 'acc'):
 			TypeError('activPAL does not have heart rate signal')
 
 
-
+# =============================================================================
+# 
+# =============================================================================
 def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all'):
 	df_csv_in = pandas.read_csv(filepath_csv_in)
 	df_csv_in.reset_index()  # make sure indexes pair with number of rows
@@ -1041,7 +1164,7 @@ def e4_concatenate(project_folder, sub_nr, resampling=None):
 #  E4 concatenation in parallel
 # =============================================================================
 
-def e4_concatente_par(project_folder, verbose=0): # TODO: Test
+def e4_concatente_par(project_folder, verbose=0): 
 	# Get list of subjects
 	sub_list=glob.glob(project_folder + "/sub-*")
 	Parallel(n_jobs=-2, verbose=verbose)(delayed(e4_concatenate)(project_folder, i) for i in sub_list)
