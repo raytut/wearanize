@@ -71,9 +71,10 @@ FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT = "_merged"
 # functions #
 
 # =============================================================================
-# 
+#
 # =============================================================================
 def fileparts(filepath):
+	filepath = os.path.normpath(filepath)
 	path_filename = os.path.split(filepath)
 	filename = path_filename[1]
 	path = path_filename[0]
@@ -83,7 +84,7 @@ def fileparts(filepath):
 	return path, name, extension
 
 # =============================================================================
-# 
+#
 # =============================================================================
 def zip_directory(folderpath, zippath, deletefolder=False, compresslevel=6):
 	with zipfile.ZipFile(zippath, mode='w') as zf:
@@ -96,7 +97,7 @@ def zip_directory(folderpath, zippath, deletefolder=False, compresslevel=6):
 		shutil.rmtree(folderpath)
 
 # =============================================================================
-# 
+#
 # =============================================================================
 def safe_zip_dir_extract(filepath):
 	temp_dir = tempfile.TemporaryDirectory()
@@ -107,7 +108,7 @@ def safe_zip_dir_extract(filepath):
 	return temp_dir
 
 # =============================================================================
-# 
+#
 # =============================================================================
 def safe_zip_dir_cleanup(temp_dir):
 	temp_dir.cleanup()
@@ -320,15 +321,16 @@ def write_raw_to_edf(raw, filepath, format="zmax_edf"):
 		edfWriter.close()
 	else:
 		raw.export(filepath,fmt='edf', physical_range='auto', add_ch_type=False, overwrite=True, verbose=None)
+	return filepath
 
 # =============================================================================
 # 
 # =============================================================================
-def read_edf_to_raw_zipped(filepath, format="zmax_edf"):
+def read_edf_to_raw_zipped(filepath, format="zmax_edf", drop_zmax=['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI']):
 	temp_dir = safe_zip_dir_extract(filepath)
 	raw = None
 	if format == "zmax_edf":
-		raw = read_edf_to_raw(temp_dir.name + os.sep + "EEG L.edf", format=format)
+		raw = read_edf_to_raw(temp_dir.name + os.sep + "EEG L.edf", format=format, drop_zmax=drop_zmax)
 	elif format == "edf":
 		fileendings = ('*.edf', '*.EDF')
 		filepath_list_edfs = []
@@ -1052,6 +1054,7 @@ def nullable_string(val):
 
 
 def dir_path(pathstring):
+	pathstring = os.path.normpath(pathstring)
 	if nullable_string(pathstring):
 		if os.path.isdir(pathstring):
 			return pathstring
@@ -1063,7 +1066,8 @@ def dir_path(pathstring):
 def dir_path_create(pathstring):
 	if nullable_string(pathstring):
 		try:
-			dir_path(pathstring)
+			pathstring = dir_path(pathstring)
+			return pathstring
 		except NotADirectoryError:
 			try:
 				os.makedirs(pathstring, exist_ok=True)
