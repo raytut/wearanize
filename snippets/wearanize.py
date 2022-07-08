@@ -54,8 +54,9 @@ from sklearn.linear_model import LinearRegression
 import argparse
 import pathlib
 import statsmodels
-import pytz
-import plotnine
+import pytz# Activpal
+import errno 
+from collections import namedtuple
 
 import sys
 if sys.version_info >= (3, 6):
@@ -256,7 +257,7 @@ def read_e4_to_raw_list(filepath):
 				timestamp=int(float(raw.columns[0]))
 				mne_info=mne.create_info(ch_names=[channel], sfreq=sfreq, ch_types="misc")
 				# Create MNE Raw object and add to a list of objects
-				mne_obj=mne.io.RawArray([raw.iloc[1:,0]], mne_info, first_samp=timestamp)
+				mne_obj=mne.io.RawArray([raw.iloc[1:,0]], mne_info, first_samp=0)
 				mne_obj.set_meas_date(timestamp)
 				mne_raw_list[i]=mne_obj
 			else:
@@ -269,7 +270,7 @@ def read_e4_to_raw_list(filepath):
 				timestamp=int(float(raw.columns[0]))
 				mne_info=mne.create_info(ch_names=["acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
 				# Create MNE Raw object and add to a list of objects
-				mne_obj=mne.io.RawArray([raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=timestamp)
+				mne_obj=mne.io.RawArray([raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=0)
 				mne_obj.set_meas_date(timestamp)
 				mne_raw_list[i]=mne_obj
 	else:
@@ -286,7 +287,7 @@ def read_e4_to_raw_list(filepath):
 				# create timestamp array
 				raw.time=(((pandas.to_datetime(raw.time)) - pandas.Timestamp("1970-01-01")) // pandas.Timedelta('1s'))
 				timestamp=raw.iloc[0:1, 1]
-				mne_obj=mne.io.RawArray([ raw.iloc[1:,1], raw.iloc[1:,0]], mne_info, first_samp=timestamp)
+				mne_obj=mne.io.RawArray([ raw.iloc[1:,1], raw.iloc[1:,0]], mne_info, first_samp=0)
 				mne_obj.set_meas_date(timestamp)
 				mne_raw_list[i]=mne_obj
 			else:
@@ -301,7 +302,7 @@ def read_e4_to_raw_list(filepath):
 				# Create MNE Raw object and add to a list of objects
 				raw.time=(((pandas.to_datetime(raw.time)) - pandas.Timestamp("1970-01-01")) // pandas.Timedelta('1s'))
 				timestamp=raw.iloc[0:1, 3]
-				mne_obj=mne.io.RawArray([ raw.iloc[1:,3], raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=timestamp)
+				mne_obj=mne.io.RawArray([ raw.iloc[1:,3], raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=0)
 				mne_obj.set_meas_date(timestamp)
 				mne_raw_list[i]=mne_obj
 	return mne_raw_list
@@ -327,7 +328,7 @@ def app_to_long(filepath):
 	file_info=parse_wearable_filepath_info(filepath)
 	# Check if EMA or not
 	if file_info["device_wearable"]!="app":
-		print("FILE NOT EMA APP DATA")
+		warnings.warn("FILE NOT EMA APP DATA")
 	else:
 		# get session identifier for clean-up
 		prefix, session=str.split(file_info['period'], "-")
@@ -463,48 +464,101 @@ def raw_zmax_data_quality(raw):
 # =============================================================================
 # 
 # =============================================================================
-def get_raw_by_date_and_time(raw, datetime, duration_seconds, offset_seconds=0.0): 
+def window_selector(raw):
+	"""
+	Given a raw signal, generate datetime and duration to create search windows
+	"""
+	try:
+		date=raw.info['meas_date']
+		duration=(raw.last_samp+1)*(1/raw.info['sfreq'])
+		return date, duration
+	except:
+		warnings.warn("Check signal is mne.raw and has all necessary info")
+		pass
+# =============================================================================
+# 
+# =============================================================================
+def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, channel='bvp', wearable='zmx', offset_seconds=0.0): 
 	"""get raw data file according to time stamps
-	see definition of mne.io.Raw.crop:
-		Limit the data from the raw file to go between specific times. Note
-		that the new ``tmin`` is assumed to be ``t=0`` for all subsequently
-		called functions (e.g., :meth:`~mne.io.Raw.time_as_index`, or
-		:class:`~mne.Epochs`). New :term:`first_samp` and :term:`last_samp`
-		are set accordingly.
-		Thus function operates in-place on the instance.
-		Use :meth:`mne.io.Raw.copy` if operation on a copy is desired.
-		
-		Parameters
-		----------
-		%(tmin_raw)s
-		%(tmax_raw)s
-		%(include_tmax)s
-		%(verbose)s
-		
-		Returns
-		-------
-		raw : instance of Raw
-			The cropped raw object, modified in-place.
-		"""
+	"""
+	# parse file parts
+	sub_path, wearable_file, extension=fileparts(filepath)
+	
 	#find the start date and end date
+	start_date=datetime_ts
+	end_date=start_date + datetime.timedelta(seconds=duration_seconds)
+	
+	# Get primary signal
+	if wearable=='zmx':
+		raw=read_edf_to_raw_zipped(filepath)
+	elif wearable=='emp':
+		raw=read_e4_to_raw(filepath)
+		if channel=='bvp':
+			raw=raw[0][0]
+	elif wearable=='apl': #TODO: Add apl files
+		 pass
+	 
+	# convert to dateframe and subset time window    
+	raw_df=raw.to_data_frame(time_format='datetime')
+	raw_df=raw_df[(raw_df.time > start_date) & (raw_df.time < end_date)]   
+	raw_df=raw_df.set_index('time', drop=True)
+	
 	#list all files and search all the relevant files that fall within these time limits
-	#load those files in a raw format
-	#extract the time points using  raw.crop(tmin=0+duration_seconds)
-	#check if all channels are present in all files
-	#fill the rest periods with nans/empty recordings and concatenate the recorings in time
+	for wearables in ['zmx', 'apl', 'emp']: 
+		# Skip if we have the same modality
+		if wearables==wearable:
+			pass
+		else:
+			# check all files in directory to match window
+			if wearables=='zmx':
+				file_list=find_wearable_files(sub_path, wearable="zmax")
+				channel_df=pandas.DataFrame()
+				for file in file_list:
+					try:
+						raw_channel=read_edf_to_raw_zipped(filepath)
+						raw_channel=raw_channel.to_data_frame(time_format='datetime')
+						raw_channel=raw_channel[(raw_channel.time > start_date) & (raw_channel.time < end_date)]
+						if raw_channel.size!=0: 
+							raw_channel=raw_channel.set_index('time', drop=True)
+							raw_channel_df=pandas.concat([channel_df,raw_channel], axis=1)
+					except:
+						pass
+				raw_df=pandas.concat([raw_df,raw_channel_df], axis=1)
+			elif wearables=="emp":  # TODO: add activapl
+				file_list=find_wearable_files(sub_path, wearable="empatica")
+				for file in file_list:
+					try:
+						raw_temp=read_e4_to_raw(sub_path + os.sep + file)
+						channel_df=pandas.DataFrame()
+						for raw_channel in raw_temp[0]:
+							raw_channel=raw_channel.to_data_frame(time_format='datetime')
+							raw_channel=raw_channel[(raw_channel.time > start_date) & (raw_channel.time < end_date)]
+							if raw_channel.size!=0: 
+								raw_channel=raw_channel.set_index('time', drop=True)
+								raw_channel_df=pandas.concat([channel_df,raw_channel], axis=1)
+					except:
+						pass
+				raw_df=pandas.concat([raw_df,raw_channel_df], axis=1)
+	# recreate a raw mne file with all channels 
+	mne_info=mne.create_info(ch_names=list(raw_df.columns), sfreq=raw.info['sfreq'])
+	raw_full=mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
+	raw_full.set_meas_date( raw_df.index[0])
+	return(raw_full)
 
 
 # =============================================================================
 # 
 # =============================================================================
-def raw_detect_heart_rate_PPG(raw, ppg_channel):
+def raw_detect_heart_rate_PPG(raw, ppg_channel, resampling_hz=2): #TODO
 	"""
 	Detect the PPG artifacts in heart rate
 	Detect the heartrate and outlier heart rates, 
 	Output the heartrate signal with inter RR intervals and timepoints and artifact periods annotated.
 	Optionally add to the raw data as a new channel with nans where there is not heart rate detected or artifactious
 	"""
-
+	sfreq=raw.info['sfreq']
+	bvp_raw=rapidhrv.Signal(raw.get_data(ppg_channel)[0], sample_rate=sfreq)
+	bvp_pre=rapidhrv.preprocess(bvp_raw, resample_rate=resampling_hz)
 	
 # =============================================================================
 # 
@@ -636,7 +690,7 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 								signal = signal_types
 								rec_start_datetime=datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
 								rec_stop_datetime = rec_start_datetime + datetime.timedelta(((((len(raw.index)-1)*(1/raw.iloc[0,0]))/60)/60)/24)
-								rec_duration_datetime=(datetime.timedelta(((len(raw.index)-1)*(1/raw.iloc[0,0])/60)/60)/24)
+								rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
 								sampling_rate_max_Hz=str(raw.iloc[0,0])
 								row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 								writer.writerow(row_new)
@@ -656,18 +710,18 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 					df_ema['EMA_timestamp_end_beep_']=pandas.to_datetime(df_ema['EMA_timestamp_end_beep_'], utc=True)
 					df_ema['EMA_timestamp_end_beep_']=df_ema.set_index(df_ema['EMA_timestamp_end_beep_']).tz_convert("Europe/Amsterdam").index
 					# Get info
-					signal = 'app'
+					signal='app'
 					rec_start_datetime = df_ema['EMA_timestamp__start_beep_'][0]
 					rec_stop_datetime = df_ema['EMA_timestamp_end_beep_'].iloc[-1]
 					rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
 					sampling_rate_max_Hz = "custom"
 					rec_quality= (df_ema['EMA_timestamp_end_beep_'] - df_ema['EMA_timestamp__start_beep_']).astype('timedelta64[ms]')
-					rec_quality=len(rec_quality[ rec_quality > (66*500)])/len(rec_quality)
+					rec_quality=len(rec_quality[ rec_quality > (66*500)])/60
 					row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 					writer.writerow(row_new)
 					
 			except:
-				print("cannot read infos from file: " + filepath_full)
+				print("cannot read info from file: " + filepath_full)
 				rec_start_datetime = 'retrieval_failed'
 				rec_stop_datetime = 'retrieval_failed'
 				rec_duration_datetime = 'retrieval_failed'
@@ -837,7 +891,6 @@ def raw_append_signal(raw, signal, ch_name):
 	return raw
 
 def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z):
-
 	# Get the data from channels
 	acc_x=raw.get_data(ch_name_acc_x)
 	acc_y=raw.get_data(ch_name_acc_y)
