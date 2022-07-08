@@ -311,12 +311,19 @@ def read_e4_to_raw_list(filepath):
 def read_e4_to_raw(filepath, resample_Hz=64):
 	mne_raw_list = read_e4_to_raw_list(filepath)
 	mne_raw_list_new = []
-	for raw in enumerate(mne_raw_list):
+	mne_raw_df=pandas.DataFrame()
+	for i, raw in enumerate(mne_raw_list):
 		if raw!="unretrieved":
 			mne_raw_list_new.append(raw.resample(resample_Hz))
+			mne_temp_df=mne_raw_list_new[i].to_data_frame(time_format="datetime")
+			mne_temp_df=mne_temp_df.set_index('time', drop=True)
+			mne_raw_df=pandas.concat([mne_raw_df, mne_temp_df], axis=1)
 
 	# append the raws together
-		raw = mne_raw_list[0].add_channels(mne_raw_list[1:])
+	mne_raw_info=mne.create_info(ch_names=list(mne_raw_df.columns), sfreq=resample_Hz)
+	mne_raw_np=mne_raw_df.to_numpy().transpose()
+	raw=mne.io.RawArray(mne_raw_np, mne_raw_info)
+	return(raw)
 
 
 # =============================================================================
