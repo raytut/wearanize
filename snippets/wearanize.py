@@ -20,6 +20,7 @@ python.exe -m pip install -r requirements.txt
 #or just do them step by step
 python.exe -m pip install mne
 python.exe -m pip install heartpy
+python.exe -m pip install plotnine
 ...
 
 or to save the enironment package requirements (also unused)
@@ -33,6 +34,7 @@ pipreqs /path/to/this/project
 """
 # imports #
 
+import rapidhrv
 import mne
 import matplotlib
 import numpy
@@ -52,8 +54,8 @@ from sklearn.linear_model import LinearRegression
 import argparse
 import pathlib
 import statsmodels
-import rapidhrv
 import pytz
+import plotnine
 
 import sys
 if sys.version_info >= (3, 6):
@@ -66,10 +68,25 @@ import tempfile
 
 from joblib import Parallel, delayed
 
+
 # constants #
 FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT = "_merged"
 
+
 # functions #
+
+'''
+def plot_synched(filepath_csv_in, filepath_plot_export):
+
+	df_csv_in = pandas.read_csv(filepath_csv_in)
+	df_csv_in.reset_index()  # make sure indexes pair with number of rows
+	plot = (plotnine.ggplot(data=df_csv_in, mapping=plotnine.aes(x=datetime,y=wearable))
+			+ plotnine.geom_rect(mapping=plotnine.aes(NULL,NULL,xmin=start,xmax=end,fill=modality), ymin=0, ymax=1, colour="back", size=0.5, alpha=0.5)
+			+ plotnine.scale_fill_manual(values=c("acc"="blue", "hr"="red")))
+
+
+	plotnine.ggsave(filename=filepath_plot_export + ".pdf", plot=plot, height=5, width=10, units = 'cm', dpi=300)
+'''
 
 # =============================================================================
 #
@@ -212,18 +229,21 @@ def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BOD
 	return raw
 
 # =============================================================================
-# E4 to mne.raw
+# E4 to mne.raw list
 # =============================================================================
-def read_e4_to_raw(filepath, resample=None):
-	
+def read_e4_to_raw_list(filepath):
+	filepath = os.path.join(filepath)
+	filepath = os.path.normpath(filepath)
+	path, name, extension = fileparts(filepath)
+
 	# Read in the e4 file
-	emp_zip=zipfile.ZipFile(os.path.join(filepath))
+	emp_zip=zipfile.ZipFile(filepath)
 	channels=['BVP.csv', 'HR.csv', 'EDA.csv','TEMP.csv', 'ACC.csv']
 	sampling_frequencies=[64, 1, 4, 4, 32]
-	mne_list=["unretrieved"]*len(channels)
+	mne_raw_list=["unretrieved"]*len(channels)
 	
 	# Check if single session or full recording
-	if "full" not in filepath:
+	if "full" not in name:
 		# Run over all signals
 		for i, signal_type in enumerate(channels):
 			if signal_type!="ACC.csv":
@@ -238,7 +258,7 @@ def read_e4_to_raw(filepath, resample=None):
 				# Create MNE Raw object and add to a list of objects
 				mne_obj=mne.io.RawArray([raw.iloc[1:,0]], mne_info, first_samp=timestamp)
 				mne_obj.set_meas_date(timestamp)
-				mne_list[i]=mne_obj
+				mne_raw_list[i]=mne_obj
 			else:
 				# Read signal
 				raw=pandas.read_csv(emp_zip.open(signal_type))
@@ -251,7 +271,7 @@ def read_e4_to_raw(filepath, resample=None):
 				# Create MNE Raw object and add to a list of objects
 				mne_obj=mne.io.RawArray([raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=timestamp)
 				mne_obj.set_meas_date(timestamp)
-				mne_list[i]=mne_obj
+				mne_raw_list[i]=mne_obj
 	else:
 		# Run over all signals
 		for i, signal_type in enumerate(channels):
@@ -268,7 +288,7 @@ def read_e4_to_raw(filepath, resample=None):
 				timestamp=raw.iloc[0:1, 1]
 				mne_obj=mne.io.RawArray([ raw.iloc[1:,1], raw.iloc[1:,0]], mne_info, first_samp=timestamp)
 				mne_obj.set_meas_date(timestamp)
-				mne_list[i]=mne_obj
+				mne_raw_list[i]=mne_obj
 			else:
 				# Read signal
 				raw=pandas.read_csv(emp_zip.open(emp_zip.filelist[0].filename+signal_type), sep="\t", index_col=0 )
@@ -283,10 +303,20 @@ def read_e4_to_raw(filepath, resample=None):
 				timestamp=raw.iloc[0:1, 3]
 				mne_obj=mne.io.RawArray([ raw.iloc[1:,3], raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=timestamp)
 				mne_obj.set_meas_date(timestamp)
-				mne_list[i]=mne_obj
-		
-	e4_to_raw=[mne_list]
-	return(e4_to_raw)
+				mne_raw_list[i]=mne_obj
+	return mne_raw_list
+
+
+def read_e4_to_raw(filepath, resample_Hz=64):
+	mne_raw_list = read_e4_to_raw_list(filepath)
+	mne_raw_list_new = []
+	for raw in enumerate(mne_raw_list):
+		if raw!="unretrieved":
+			mne_raw_list_new.append(raw.resample(resample_Hz))
+
+	# append the raws together
+		raw = mne_raw_list[0].add_channels(mne_raw_list[1:])
+
 
 # =============================================================================
 # 
@@ -799,15 +829,15 @@ def sync_signals(signal_ref, signal_sync, fsample, chunk_size_seconds=60*10, chu
 # 
 # =============================================================================
 
-def raw_get_integrated_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, resample_Hz=None): #TODO: Rayyan
-	
-	timestamp=raw.info.get("meas_date")
-	if resample_Hz!=None:
-		raw=raw.resample(resample_Hz)
-		sfreq=resample_Hz
-	else: 
-		sfreq=raw.info.get("sfreq")
-	
+def raw_append_signal(raw, signal, ch_name):
+	# Create MNE Raw object and add to a list of objects
+	mne_info=mne.create_info(ch_names=[ch_name], sfreq=raw.info.get("sfreq"), ch_types="misc")
+	mne_raw_signal=mne.io.RawArray([signal], mne_info)
+	raw.add_channels([mne_raw_signal])
+	return raw
+
+def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z):
+
 	# Get the data from channels
 	acc_x=raw.get_data(ch_name_acc_x)
 	acc_y=raw.get_data(ch_name_acc_y)
@@ -816,16 +846,24 @@ def raw_get_integrated_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, res
 	# Caclulate differences between consequetive samples
 	acc_x_dis=numpy.array(abs(numpy.diff(acc_x, prepend=acc_x[0][0])))
 	acc_y_dis=numpy.array(abs(numpy.diff(acc_y, prepend=acc_y[0][0])))
-	acc_z_dis=numpy.array(abs(numpy.diff(acc_z,prepend=acc_z[0][0])))
+	acc_z_dis=numpy.array(abs(numpy.diff(acc_z, prepend=acc_z[0][0])))
 	
 	# Calculate mean displacement
 	net_displacement=numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)
-	
-	# Create MNE Raw object and add to a list of objects
-	mne_info=mne.create_info(ch_names=["acc_x", "acc_y", "acc_z", "integrated_acc"], sfreq=sfreq, ch_types="misc")
-	mne_displacement=mne.io.RawArray([acc_x[0], acc_y[0], acc_z[0], net_displacement[0] ], mne_info)
-	mne_displacement.set_meas_date(timestamp)
-	return(mne_displacement)
+
+	return raw_append_signal(raw, net_displacement[0], ch_name="integrated_acc")
+
+
+# =============================================================================
+#
+# =============================================================================
+
+def raw_get_integrated_acc_signal(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, resample_Hz=None):
+
+	if resample_Hz is not None:
+		raw = raw.resample(resample_Hz)
+
+	return raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z).get_data(picks=["integrated_acc"])
 
 
 # =============================================================================
@@ -843,16 +881,16 @@ def get_signal(filepath, wearable, type = 'acc'):
 		else:
 			raw = read_edf_to_raw_zipped(filepath, format="edf")
 		if type == 'acc':
-			raw_get_integrated_acc(raw, ch_name_acc_x='dX', ch_name_acc_y='dY', ch_name_acc_z='dZ', resample_Hz=2)
+			raw_get_integrated_acc_signal(raw, ch_name_acc_x='dX', ch_name_acc_y='dY', ch_name_acc_z='dZ', resample_Hz=2)
 		elif type == 'hr':
 			pass
 	elif wearable == 'emp':
-		raw=read_e4_to_raw(filepath)
+		raw=read_e4_to_raw_list(filepath)
 		if type == 'acc':
-			raw=raw[0][4]
-			raw_get_integrated_acc(raw, ch_name_acc_x="acc_x", ch_name_acc_y="acc_y", ch_name_acc_z="acc_z", resample_Hz=2)
+			raw=raw[4]
+			raw_get_integrated_acc_signal(raw, ch_name_acc_x="acc_x", ch_name_acc_y="acc_y", ch_name_acc_z="acc_z", resample_Hz=2)
 		elif type == 'hr':
-			raw=raw[0][0]
+			raw=raw[0]
 	elif wearable == 'apl':
 		if type == 'acc':
 			pass
@@ -1269,17 +1307,17 @@ if __name__ == "__main__":
 	print(args.switch)
 	"""
 
-	path_data = pathlib.Path().resolve() # the current working directory
+	path_data = os.getcwd() # the current working directory
 	if args.path_data is not None:
 		path_data = args.path_data
 
-	path_init = pathlib.Path().resolve() + os.sep + '.wearanize'
+	path_init = os.getcwd() + os.sep + '.wearanize'
 	if args.path_init is not None:
 		path_init = args.path_init
 
 	path_output = path_init + os.sep + 'output'
-	if args.path_init is not None:
-		path_output = args.path_init
+	if args.path_output is not None:
+		path_output = args.path_output
 
 	reexport_on_init = True
 	if args.no_reexport_on_init is not None:
@@ -1306,6 +1344,8 @@ if __name__ == "__main__":
 		#write_raw_to_edf_zipped(raw, "Y:/HB/data/test_data_zmax/FW.merged.zip", format="zmax_edf") # treat as a speacial zmax read EDF for export
 		#raw_reread = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW.merged.zip", format="edf")
 		#write_raw_to_edf_zipped(raw, "Y:/HB/data/test_data_zmax/FW.merged.reread.zip", format="zmax_edf") # treat as a speacial zmax read EDF for export
+
+		signal_integrated_acc = raw_append_integrate_acc(raw, 'dX', 'dX', 'dZ').get_data(picks=["integrated_acc"])
 
 		delay_ref = 16
 		signal_ref = raw.get_data(picks=['EEG L'],start=0+delay_ref, stop=256*60*10*3+delay_ref)[0,]
