@@ -492,9 +492,9 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, channel='
 	if wearable=='zmx':
 		raw=read_edf_to_raw_zipped(filepath)
 	elif wearable=='emp':
-		raw=read_e4_to_raw(filepath)
+		raw=read_e4_to_raw_list(filepath)
 		if channel=='bvp':
-			raw=raw[0][0]
+			raw=raw[0]
 	elif wearable=='apl': #TODO: Add apl files
 		 pass
 	 
@@ -528,9 +528,9 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, channel='
 				file_list=find_wearable_files(sub_path, wearable="empatica")
 				for file in file_list:
 					try:
-						raw_temp=read_e4_to_raw(sub_path + os.sep + file)
+						raw_temp=read_e4_to_raw_list(sub_path + os.sep + file)
 						channel_df=pandas.DataFrame()
-						for raw_channel in raw_temp[0]:
+						for raw_channel in raw_temp:
 							raw_channel=raw_channel.to_data_frame(time_format='datetime')
 							raw_channel=raw_channel[(raw_channel.time > start_date) & (raw_channel.time < end_date)]
 							if raw_channel.size!=0: 
