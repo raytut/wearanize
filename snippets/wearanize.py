@@ -531,7 +531,8 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, channel='
 					except:
 						pass
 				raw_df=pandas.concat([raw_df,raw_channel_df], axis=1)
-			elif wearables=="emp":  # TODO: add activapl
+			# Empatica
+			elif wearables=="emp":  
 				file_list=find_wearable_files(sub_path, wearable="empatica")
 				for file in file_list:
 					try:
@@ -546,6 +547,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, channel='
 					except:
 						pass
 				raw_df=pandas.concat([raw_df,raw_channel_df], axis=1)
+			# Activpal #TODO
 	# recreate a raw mne file with all channels 
 	mne_info=mne.create_info(ch_names=list(raw_df.columns), sfreq=raw.info['sfreq'])
 	raw_full=mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
