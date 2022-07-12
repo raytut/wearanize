@@ -798,7 +798,18 @@ class ActivpalData(object):
 		return self._signals['rss'].copy()
 
 
-
+def apl_to_raw(filepath):
+	# TODO: Sort out memory issue (needs 50+gb now
+	meta, raw =load_activpal_data(filepath)
+	info=mne.create_info(["acc_x", 'acc_y', 'acc_z'], sfreq=meta[3])
+	raw=raw.transpose()
+	raw=mne.io.RawArray(raw, info, first_samp=0, verbose=True)
+	# Set time
+	tz=pytz.timezone('Europe/Amsterdam')
+	timestamp=meta[5]
+	timetamp_tz=tz.localize(timestamp)
+	raw.set_meas_date(timestamp.timestamp())
+	return(raw)
 
 # =============================================================================
 # 
