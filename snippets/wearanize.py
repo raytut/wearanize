@@ -799,7 +799,7 @@ class ActivpalData(object):
 
 
 def apl_to_raw(filepath):
-	# TODO: Sort out memory issue (needs 50+gb now
+	# TODO: Sort out memory issue (needs 50+gb now)
 	meta, raw =load_activpal_data(filepath)
 	info=mne.create_info(["acc_x", 'acc_y', 'acc_z'], sfreq=meta[3])
 	raw=raw.transpose()
