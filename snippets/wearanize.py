@@ -1262,6 +1262,7 @@ def sync_signals(signal_ref, signal_sync, fsample, chunk_size_seconds=60*10, chu
 	lag_after_dilation_seconds = lag_after_dilation/fsample
 	return lag_seconds, dilation, lag_after_dilation_seconds, sample_rate_adaptation_factor
 
+
 # =============================================================================
 # 
 # =============================================================================
@@ -1272,6 +1273,11 @@ def raw_append_signal(raw, signal, ch_name):
 	mne_raw_signal=mne.io.RawArray([signal], mne_info)
 	raw.add_channels([mne_raw_signal])
 	return raw
+
+
+# =============================================================================
+#
+# =============================================================================
 
 def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z):
 	# Get the data from channels
