@@ -840,7 +840,7 @@ def window_selector(raw):
 # =============================================================================
 # 
 # =============================================================================
-def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, resampling=True, wearable='zmx', channel='bvp',  offset_seconds=0.0): 
+def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable='zmx', channel='bvp',  offset_seconds=0.0): 
 	"""get raw data file according to time stamps
 	"""
 	# parse file parts
@@ -860,8 +860,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, resamplin
 	elif wearable=='apl': #TODO: Add apl files
 		 pass
 	 
-	# convert to dateframe and subset time window   
-	resamp_freq=raw.info['sfreq'] 
+	# convert to dateframe and subset time window    
 	raw_df=raw.to_data_frame(time_format='datetime')
 	raw_df=raw_df[(raw_df.time > start_date) & (raw_df.time < end_date)]   
 	raw_df=raw_df.set_index('time', drop=True)
@@ -880,8 +879,6 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, resamplin
 				for file in file_list:
 					try:
 						raw_channel=read_edf_to_raw_zipped(filepath)
-						if resampling==True:
-							raw_channel.resample(resamp_freq)
 						raw_channel=raw_channel.to_data_frame(time_format='datetime')
 						raw_channel=raw_channel[(raw_channel.time > start_date) & (raw_channel.time < end_date)]
 						if raw_channel.size!=0: 
@@ -893,21 +890,18 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, resamplin
 			# Empatica
 			elif wearables=="emp":  
 				file_list=find_wearable_files(sub_path, wearable="empatica")
+				channel_df=pandas.DataFrame()
 				for file in file_list:
-					try:
-						raw_temp=read_e4_to_raw_list(sub_path + os.sep + file)
-						channel_df=pandas.DataFrame()
-						for raw_channel in raw_temp:
-							if resampling==True:
-								raw_channel.resample(resamp_freq)
+					if (file.endswith('emp_full.zip')==False) and (file.endswith('emp.zip')==False):
+						try:
+							raw_channel=read_e4_to_raw(sub_path + os.sep + file)
 							raw_channel=raw_channel.to_data_frame(time_format='datetime')
 							raw_channel=raw_channel[(raw_channel.time > start_date) & (raw_channel.time < end_date)]
 							if raw_channel.size!=0: 
-
 								raw_channel=raw_channel.set_index('time', drop=True)
 								channel_df=pandas.concat([channel_df,raw_channel], axis=1)
-					except:
-						pass
+						except:
+							pass
 				raw_df=pandas.concat([raw_df,channel_df], axis=1)
 			# Activpal #TODO
 			
@@ -917,6 +911,18 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, resamplin
 	raw_full.set_meas_date( raw_df.index[0])
 	return(raw_full)
 
+
+def uneven_raw_resample(raw, resample_hz):
+	# set resampling string for use with pandas
+	resample_offset=(str(1/resample_hz)+'S')
+	raw_df=raw.to_data_frame(time_format='datetime')
+	raw_df=raw_df.set_index('time', drop=True)
+	raw_df=raw_df.resample(resample_offset).ffill()
+	# convert back to mne.rwa
+	mne_info=mne.create_info(ch_names=list(raw_df.columns), sfreq=resample_hz)
+	raw_full=mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
+	raw_full.set_meas_date(raw_df.index[0])
+	return raw_full
 
 # =============================================================================
 # 
