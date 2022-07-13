@@ -840,7 +840,7 @@ def window_selector(raw):
 # =============================================================================
 # 
 # =============================================================================
-def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, channel='bvp', wearable='zmx', offset_seconds=0.0): 
+def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, resampling=True, wearable='zmx', channel='bvp',  offset_seconds=0.0): 
 	"""get raw data file according to time stamps
 	"""
 	# parse file parts
@@ -860,12 +860,14 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, channel='
 	elif wearable=='apl': #TODO: Add apl files
 		 pass
 	 
-	# convert to dateframe and subset time window    
+	# convert to dateframe and subset time window   
+	resamp_freq=raw.info['sfreq'] 
 	raw_df=raw.to_data_frame(time_format='datetime')
 	raw_df=raw_df[(raw_df.time > start_date) & (raw_df.time < end_date)]   
 	raw_df=raw_df.set_index('time', drop=True)
 	
 	#list all files and search all the relevant files that fall within these time limits
+	print("Searching all wearable files in directory...")
 	for wearables in ['zmx', 'apl', 'emp']: 
 		# Skip if we have the same modality
 		if wearables==wearable:
@@ -878,14 +880,16 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, channel='
 				for file in file_list:
 					try:
 						raw_channel=read_edf_to_raw_zipped(filepath)
+						if resampling==True:
+							raw_channel.resample(resamp_freq)
 						raw_channel=raw_channel.to_data_frame(time_format='datetime')
 						raw_channel=raw_channel[(raw_channel.time > start_date) & (raw_channel.time < end_date)]
 						if raw_channel.size!=0: 
 							raw_channel=raw_channel.set_index('time', drop=True)
-							raw_channel_df=pandas.concat([channel_df,raw_channel], axis=1)
+							channel_df=pandas.concat([channel_df,raw_channel], axis=1)
 					except:
 						pass
-				raw_df=pandas.concat([raw_df,raw_channel_df], axis=1)
+				raw_df=pandas.concat([raw_df,channel_df], axis=1)
 			# Empatica
 			elif wearables=="emp":  
 				file_list=find_wearable_files(sub_path, wearable="empatica")
@@ -894,15 +898,19 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds, channel='
 						raw_temp=read_e4_to_raw_list(sub_path + os.sep + file)
 						channel_df=pandas.DataFrame()
 						for raw_channel in raw_temp:
+							if resampling==True:
+								raw_channel.resample(resamp_freq)
 							raw_channel=raw_channel.to_data_frame(time_format='datetime')
 							raw_channel=raw_channel[(raw_channel.time > start_date) & (raw_channel.time < end_date)]
 							if raw_channel.size!=0: 
+
 								raw_channel=raw_channel.set_index('time', drop=True)
-								raw_channel_df=pandas.concat([channel_df,raw_channel], axis=1)
+								channel_df=pandas.concat([channel_df,raw_channel], axis=1)
 					except:
 						pass
-				raw_df=pandas.concat([raw_df,raw_channel_df], axis=1)
+				raw_df=pandas.concat([raw_df,channel_df], axis=1)
 			# Activpal #TODO
+			
 	# recreate a raw mne file with all channels 
 	mne_info=mne.create_info(ch_names=list(raw_df.columns), sfreq=raw.info['sfreq'])
 	raw_full=mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
@@ -921,8 +929,8 @@ def raw_detect_heart_rate_PPG(raw, ppg_channel, resampling_hz=2): #TODO
 	Optionally add to the raw data as a new channel with nans where there is not heart rate detected or artifactious
 	"""
 	sfreq=raw.info['sfreq']
-	bvp_raw=rapidhrv.Signal(raw.get_data(ppg_channel)[0], sample_rate=sfreq)
-	bvp_pre=rapidhrv.preprocess(bvp_raw, resample_rate=resampling_hz)
+	raw.resample(resampling_hz)
+	hr, measures=heartpy.process(raw.get_data(ppg_channel)[0], sample_rate=resampling_hz)
 	
 # =============================================================================
 # 
@@ -1008,7 +1016,6 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 			sampling_rate_max_Hz = 'unretrieved'
 			rec_quality = 'unretrieved'
 
-
 			try:
 				if device_wearable == 'zmx':
 					if session in ["1", "2", "3", "4", "5", "6", "7", "8"]:
@@ -1030,6 +1037,7 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 						signal="zmx_all"
 						row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 						writer.writerow(row_new)
+						
 				elif device_wearable == 'emp':
 				# Make this a try, to avoid the improper files and concatenated ones
 					try: 
@@ -1060,11 +1068,22 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 								writer.writerow(row_new)
 					except:
 						pass
+					
 				elif device_wearable == 'apl':
-					pass
+					filepath_full=parentdirpath + os.sep + filepath
+					meta, raw =load_activpal_data(filepath_full)	
+					tz=pytz.timezone('Europe/Amsterdam')
+					# Get info
+					signal='apl'
+					rec_start_datetime = tz.localize(meta[5])
+					rec_stop_datetime = tz.localize(meta[6])
+					rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
+					sampling_rate_max_Hz = meta[3]
+					rec_quality= 'unretrieved'
+					row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
+					writer.writerow(row_new)
 				
-				elif device_wearable == 'app': #TODO: Addd the EMA
-				
+				elif device_wearable == 'app': 				
 					# read in full file
 					filepath_full = parentdirpath + os.sep + filepath
 					df_ema=app_to_long(filepath_full)
