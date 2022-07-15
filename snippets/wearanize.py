@@ -323,6 +323,7 @@ def read_e4_to_raw(filepath, resample_Hz=64):
 	mne_raw_info=mne.create_info(ch_names=list(mne_raw_df.columns), sfreq=resample_Hz)
 	mne_raw_np=mne_raw_df.to_numpy().transpose()
 	raw=mne.io.RawArray(mne_raw_np, mne_raw_info)
+	raw.set_meas_date(mne_raw_list[0].info['meas_date'])
 	return(raw)
 
 
