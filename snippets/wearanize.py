@@ -68,13 +68,30 @@ else:
 import tempfile
 
 from joblib import Parallel, delayed
+import logging
+import traceback
+import subprocess
 
 
 # constants #
 FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT = "_merged"
 
 
+# classes #
+
+class StreamToLogger(object):
+	def __init__(self, logger, log_level=logging.INFO):
+		self.logger = logger
+		self.log_level = log_level
+		self.linebuf = ''
+
+	def write(self, buf):
+		for line in buf.rstrip().splitlines():
+			self.logger.log(self.log_level, line.rstrip())
+
 # functions #
+
+
 
 '''
 def plot_synched(filepath_csv_in, filepath_plot_export):
@@ -158,9 +175,27 @@ def parse_wearable_filepath_info(filepath):
 	return {'subject_id': subject_id, 'filepath':  filepath, 'period':  period, 'datatype':  datatype, 'device_wearable':  device_wearable, 'session': session}
 
 # =============================================================================
+#
+# =============================================================================
+def raw_prolong_constant(raw, to_n_samples, contant=0, prepend=False):
+	append_samples = to_n_samples - raw.n_times
+
+	#raw_append = mne.io.RawEDF(numpy.full([raw._data.shape[0], append_samples], contant), info=raw.info)
+	raw_append = raw.copy()
+	raw_append.crop(tmin=raw_append.times[0], tmax=raw_append.times[append_samples-1], include_tmax=True, verbose=False)
+	raw_append._data = numpy.full([raw_append._data.shape[0], append_samples], contant)
+	if prepend:
+		raw_append.append([raw])
+		return raw_append
+	else:
+		raw.append([raw_append])
+		return raw
+		#mne.concatenate_raws([raw, raw_append])
+
+# =============================================================================
 # 
 # =============================================================================
-def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI']):
+def read_edf_to_raw(filepath, preload=True, format="zmax_edf", zmax_ppgparser=False, zmax_ppgparser_exe_path=None, zmax_ppgparser_timeout=None, drop_zmax=['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI', 'PARSED_NASAL R', 'PARSED_NASAL L', 'PARSED_OXY_R_AC', 'PARSED_HR_r', 'PARSED_HR_r_strength']):
 	path, name, extension = fileparts(filepath)
 	if (extension).lower() != ".edf":
 		warnings.warn("The filepath " + filepath + " does not seem to be an EDF file.")
@@ -171,21 +206,62 @@ def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BOD
 		This reader is largely similar to the one for edf but gets and assembles all the EDFs in a folder if they are in the zmax data format
 		"""
 		path, name, extension = fileparts(filepath)
-		check_channel_filenames = ['BATT', 'BODY TEMP', 'dX', 'dY', 'dZ', 'EEG L', 'EEG R', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_IR_AC', 'OXY_IR_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI']
+		#check_channel_filenames = ['BATT', 'BODY TEMP', 'dX', 'dY', 'dZ', 'EEG L', 'EEG R', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_IR_AC', 'OXY_IR_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI']
+		check_channel_filenames = ['BATT', 'BODY TEMP', 'dX', 'dY', 'dZ', 'EEG L', 'EEG R', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_IR_AC', 'OXY_IR_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI', 'PARSED_NASAL R', 'PARSED_OXY_IR_AC', 'PARSED_NASAL L', 'PARSED_HR_r', 'PARSED_HR_r_strength', 'PARSED_OXY_R_AC', 'PARSED_HR_ir', 'PARSED_HR_ir_strength']
 		raw_avail_list = []
 		channel_avail_list = []
 		channel_read_list = []
 		for iCh, name in enumerate(check_channel_filenames):
 			checkname = path + os.sep + name + '.edf'
 			if os.path.isfile(checkname):
-				channel_avail_list.append(check_channel_filenames[iCh])
-				if not name in drop_zmax:
-					raw_avail_list.append(read_edf_to_raw(checkname, format="edf"))
-					channel_read_list.append(check_channel_filenames[iCh])
+				channel_avail_list.append(name)
+
+		if zmax_ppgparser and zmax_ppgparser_exe_path is not None:
+			print('ATTEMPT to reparse heart signals using the PPGParser' + filepath)
+			exec_string =  "\"" + zmax_ppgparser_exe_path + "\""
+			for iCh, name in enumerate(channel_avail_list):
+				addfilepath = path + os.sep + name + '.edf'
+				exec_string = exec_string + " " + "\"" + addfilepath + "\""
+			try:
+				subprocess.run(exec_string, shell=False, timeout=zmax_ppgparser_timeout)
+			except:
+				print(traceback.format_exc())
+				print('FAILED to reparse' + filepath)
+			channel_avail_list = []
+			for iCh, name in enumerate(check_channel_filenames):
+				checkname = path + os.sep + name + '.edf'
+				if os.path.isfile(checkname):
+					channel_avail_list.append(name)
+
+		for iCh, name in enumerate(channel_avail_list):
+			if not name in drop_zmax:
+				readfilepath = path + os.sep + name + '.edf'
+				try:
+					raw_read = read_edf_to_raw(readfilepath, format="edf")
+					if 'PARSED_' in name:
+						raw_read.rename_channels({raw_read.info["ch_names"][0]: name})
+					raw_avail_list.append(raw_read)
+					channel_read_list.append(name)
+				except Exception:
+					print(traceback.format_exc())
+					print('FAILED TO read in channel: ' + check_channel_filenames[iCh])
+
 		print("zmax edf channels found:")
 		print(channel_avail_list)
 		print("zmax edf channels read in:")
 		print(channel_read_list)
+
+		if raw_avail_list[0] is not None:
+			nSamples_should = raw_avail_list[0].n_times
+
+		for i, r in enumerate(raw_avail_list):
+			if r is not None:
+				sfreq_temp = r.info['sfreq']
+				if sfreq_temp != 256.0:
+					raw_avail_list[i] = r.resample(256.0)
+					nSamples = raw_avail_list[i].n_times
+					if nSamples < nSamples_should:
+						raw_avail_list[i] = raw_prolong_constant(raw_avail_list[i], nSamples_should, contant=0, prepend=True)
 
 		# append the raws together
 		raw = raw_avail_list[0].add_channels(raw_avail_list[1:])
@@ -226,7 +302,7 @@ def read_edf_to_raw(filepath, preload=True, format="zmax_edf", drop_zmax = ['BOD
 
 		#raw.info['chs'][0]['unit']
 	else:
-		raw = mne.io.read_raw_edf(filepath, preload = True)
+		raw = mne.io.read_raw_edf(filepath, preload=preload)
 	return raw
 
 # =============================================================================
@@ -359,14 +435,14 @@ def edfWriteAnnotation(edfWriter, onset_in_seconds, duration_in_seconds, descrip
 	edfWriter.writeAnnotation(onset_in_seconds, duration_in_seconds, description, str_format)
 
 # =============================================================================
-# 
+#
 # =============================================================================
 def write_raw_to_edf(raw, filepath, format="zmax_edf"):
 	path, name, extension = fileparts(filepath)
 	if (extension).lower() != ".edf":
 		warnings.warn("The filepath " + filepath + " does not seem to be an EDF file.")
 	if format == "zmax_edf":
-		channel_dimensions_zmax = {'BATT': 'V', 'BODY TEMP': "C", 'dX': "g", 'dY': "g", 'dZ': "g", 'EEG L': "uV", 'EEG R': "uV", 'LIGHT': "", 'NASAL L': "", 'NASAL R': "", 'NOISE': "", 'OXY_DARK_AC': "", 'OXY_DARK_DC': "", 'OXY_IR_AC': "", 'OXY_IR_DC': "", 'OXY_R_AC': "", 'OXY_R_DC': "", 'RSSI': ""}
+		channel_dimensions_zmax = {'BATT': 'V', 'BODY TEMP': "C", 'dX': "g", 'dY': "g", 'dZ': "g", 'EEG L': "uV", 'EEG R': "uV", 'LIGHT': "", 'NASAL L': "", 'NASAL R': "", 'NOISE': "", 'OXY_DARK_AC': "", 'OXY_DARK_DC': "", 'OXY_IR_AC': "", 'OXY_IR_DC': "", 'OXY_R_AC': "", 'OXY_R_DC': "", 'RSSI': "", 'PARSED_NASAL R': "", 'PARSED_OXY_IR_AC': "", 'PARSED_NASAL L': "", 'PARSED_HR_r': "bpm", 'PARSED_HR_r_strength': "", 'PARSED_OXY_R_AC': "", 'PARSED_HR_ir': "bpm", 'PARSED_HR_ir_strength': ""}
 
 		#EDF_format_extention = ".edf"
 		EDF_format_filetype = pyedflib.FILETYPE_EDFPLUS
@@ -398,7 +474,10 @@ def write_raw_to_edf(raw, filepath, format="zmax_edf"):
 
 		for iCh in range(0,nChannels):
 			ch_name = raw.info['ch_names'][iCh]
-			dimension = channel_dimensions_zmax[ch_name] #'uV'
+			try:
+				dimension = channel_dimensions_zmax[ch_name] #'uV'
+			except KeyError:
+				dimension = ""
 			sf = int(round(sfreq))
 			pysical_min = raw._raw_extras[0]['physical_min'][iCh]
 			pysical_max = raw._raw_extras[0]['physical_max'][iCh]
@@ -429,20 +508,20 @@ def write_raw_to_edf(raw, filepath, format="zmax_edf"):
 	return filepath
 
 # =============================================================================
-# 
+#
 # =============================================================================
-def read_edf_to_raw_zipped(filepath, format="zmax_edf", drop_zmax=['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI']):
+def read_edf_to_raw_zipped(filepath, format="zmax_edf", zmax_ppgparser=False, zmax_ppgparser_exe_path=None, zmax_ppgparser_timeout=None, drop_zmax=['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI', 'PARSED_NASAL R', 'PARSED_NASAL L', 'PARSED_OXY_R_AC', 'PARSED_HR_r', 'PARSED_HR_r_strength']):
 	temp_dir = safe_zip_dir_extract(filepath)
 	raw = None
 	if format == "zmax_edf":
-		raw = read_edf_to_raw(temp_dir.name + os.sep + "EEG L.edf", format=format, drop_zmax=drop_zmax)
+		raw = read_edf_to_raw(temp_dir.name + os.sep + "EEG L.edf", format=format, zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout, drop_zmax=drop_zmax)
 	elif format == "edf":
 		fileendings = ('*.edf', '*.EDF')
 		filepath_list_edfs = []
 		for fileending in fileendings:
 			filepath_list_edfs.extend(glob.glob(temp_dir.name + os.sep + fileending,recursive=True))
 		if filepath_list_edfs:
-			raw = read_edf_to_raw(filepath_list_edfs[0], format=format)
+			raw = read_edf_to_raw(filepath_list_edfs[0], format=format, zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout)
 	safe_zip_dir_cleanup(temp_dir)
 	return raw
 
@@ -852,12 +931,13 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	end_date=start_date + datetime.timedelta(seconds=duration_seconds)
 	
 	# Get primary signal
-	if wearable=='zmx':
-		raw=read_edf_to_raw_zipped(filepath)
-	elif wearable=='emp':
-		raw=read_e4_to_raw(filepath)
-	elif wearable=='apl': #TODO: Add apl files
-		 pass
+	if wearable == 'zmx':
+		raw = read_edf_to_raw_zipped(filepath)
+	elif wearable == 'emp':
+		raw = read_e4_to_raw_list(filepath)
+		if channel == 'bvp':
+			raw = raw[0]	elif wearable == 'apl': #TODO: Add apl files
+		pass
 	 
 	# convert to dateframe and subset time window    
 	raw_df=raw.to_data_frame(time_format='datetime')
@@ -958,6 +1038,11 @@ def check_zmax_integrity():
 	#Optionally look for low Voltage in Battery (some lower threshold that was crossed to mark some forced shuttoff
 	"""
 
+def parseDevice(device):
+	if device == 'all':
+		device = 'zmx|emp|app|apl'
+	return device
+
 # =============================================================================
 # 
 # =============================================================================
@@ -984,12 +1069,11 @@ def find_wearable_files(parentdirpath, wearable):
 
 	return filepath_list
 
-
 # =============================================================================
 # 
 # =============================================================================
 def parse_wearable_data_write_csv(parentdirpath, filepath_csv_out, device='all'):
-
+	device = parseDevice(device)
 	filepath_list = find_wearable_files(parentdirpath, device)
 
 	with open(filepath_csv_out, 'w', newline='') as csvfile:
@@ -1002,7 +1086,8 @@ def parse_wearable_data_write_csv(parentdirpath, filepath_csv_out, device='all')
 # =============================================================================
 # Parser: adds info
 # =============================================================================
-def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_in, filepath_csv_out, device='all', reexport=True):
+def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_in, filepath_csv_out, device='all', reexport=True, zmax_ppgparser=False, zmax_ppgparser_exe_path=None, zmax_ppgparser_timeout=None):
+	device = parseDevice(device)
 	df_csv_in = pandas.read_csv(filepath_csv_in)
 	df_csv_in.reset_index()  # make sure indexes pair with number of rows
 
@@ -1013,6 +1098,7 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 		writer.writerow(header_new)
 		for i, row in df_csv_in.iterrows():
 			filepath = row['filepath']
+			filepath_full = parentdirpath + os.sep + filepath
 			device_wearable = row['device_wearable']
 			session = row['session']
 			
@@ -1023,34 +1109,34 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 			sampling_rate_max_Hz = 'unretrieved'
 			rec_quality = 'unretrieved'
 
+			print("attempt read info from file: " + filepath_full)
 			try:
-				if device_wearable == 'zmx':
+				if device_wearable == 'zmx' and 'zmx' in device:
 					if session in ["1", "2", "3", "4", "5", "6", "7", "8"]:
-						filepath_full = parentdirpath + os.sep + filepath
-						raw = read_edf_to_raw_zipped(filepath, format="zmax_edf")
+						raw = read_edf_to_raw_zipped(filepath_full, format="zmax_edf", zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout)
 						rec_start_datetime = raw.info['meas_date']
 						rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
 						rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
 						sampling_rate_max_Hz = raw.info['sfreq']
 						rec_quality = raw_zmax_data_quality(raw)
 						if reexport:
-							path, name, extension = fileparts(filepath)
+							path, name, extension = fileparts(filepath_full)
 							reexport_filepath = path + os.sep + name + FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT + ".zip"
 							try:
 								write_raw_to_edf_zipped(raw, reexport_filepath, format="zmax_edf") # treat as a speacial zmax read EDF for export
-								print("Re-exported '%s' to '%s'" % (filepath, reexport_filepath))
-							except:
-								print("Failed to re-export '%s' to '%s' was not existent and was created" % (filepath, reexport_filepath))
+								print("Re-exported '%s' to '%s'" % (filepath_full, reexport_filepath))
+							except Exception:
+								print(traceback.format_exc())
+								print("Failed to re-export '%s' to '%s'" % (filepath, reexport_filepath))
 						signal="zmx_all"
 						row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 						writer.writerow(row_new)
 						
-				elif device_wearable == 'emp':
+				elif device_wearable == 'emp' and 'emp' in device:
 				# Make this a try, to avoid the improper files and concatenated ones
 					try: 
 						# If we cant turn into integer, its probably right	
 						session=int(session)
-						filepath_full = parentdirpath + os.sep + filepath
 						emp_zip=zipfile.ZipFile(filepath_full)
 						tzinfo=datetime.timezone(datetime.timedelta(0))
 						# Estimate different parameters per signal
@@ -1076,37 +1162,35 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 					except:
 						pass
 					
-				elif device_wearable == 'apl':
-					filepath_full=parentdirpath + os.sep + filepath
-					meta, raw =load_activpal_data(filepath_full)	
-					tz=pytz.timezone('Europe/Amsterdam')
+				elif device_wearable == 'apl' and 'apl' in device:
+					meta, raw = load_activpal_data(filepath_full)
+					tz = pytz.timezone('Europe/Amsterdam')
 					# Get info
-					signal='apl'
+					signal = 'apl'
 					rec_start_datetime = tz.localize(meta[5])
 					rec_stop_datetime = tz.localize(meta[6])
-					rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
+					rec_duration_datetime = (rec_stop_datetime - rec_start_datetime)
 					sampling_rate_max_Hz = meta[3]
-					rec_quality= 'unretrieved'
+					rec_quality = 'unretrieved'
 					row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 					writer.writerow(row_new)
 				
-				elif device_wearable == 'app': 				
+				elif device_wearable == 'app' and 'app' in device:
 					# read in full file
-					filepath_full = parentdirpath + os.sep + filepath
-					df_ema=app_to_long(filepath_full)
+					df_ema = app_to_long(filepath_full)
 					# Clean up date times
-					df_ema['EMA_timestamp__start_beep_']=pandas.to_datetime(df_ema['EMA_timestamp__start_beep_'], utc=True)
-					df_ema['EMA_timestamp__start_beep_']=df_ema.set_index(df_ema['EMA_timestamp__start_beep_']).tz_convert("Europe/Amsterdam").index
-					df_ema['EMA_timestamp_end_beep_']=pandas.to_datetime(df_ema['EMA_timestamp_end_beep_'], utc=True)
-					df_ema['EMA_timestamp_end_beep_']=df_ema.set_index(df_ema['EMA_timestamp_end_beep_']).tz_convert("Europe/Amsterdam").index
+					df_ema['EMA_timestamp__start_beep_'] = pandas.to_datetime(df_ema['EMA_timestamp__start_beep_'], utc=True)
+					df_ema['EMA_timestamp__start_beep_'] = df_ema.set_index(df_ema['EMA_timestamp__start_beep_']).tz_convert("Europe/Amsterdam").index
+					df_ema['EMA_timestamp_end_beep_'] = pandas.to_datetime(df_ema['EMA_timestamp_end_beep_'], utc=True)
+					df_ema['EMA_timestamp_end_beep_'] = df_ema.set_index(df_ema['EMA_timestamp_end_beep_']).tz_convert("Europe/Amsterdam").index
 					# Get info
-					signal='app'
+					signal = 'app'
 					rec_start_datetime = df_ema['EMA_timestamp__start_beep_'][0]
 					rec_stop_datetime = df_ema['EMA_timestamp_end_beep_'].iloc[-1]
-					rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
+					rec_duration_datetime = (rec_stop_datetime - rec_start_datetime)
 					sampling_rate_max_Hz = "custom"
-					rec_quality= (df_ema['EMA_timestamp_end_beep_'] - df_ema['EMA_timestamp__start_beep_']).astype('timedelta64[ms]')
-					rec_quality=len(rec_quality[ rec_quality > (66*500)])/60
+					rec_quality = (df_ema['EMA_timestamp_end_beep_'] - df_ema['EMA_timestamp__start_beep_']).astype('timedelta64[ms]')
+					rec_quality = len(rec_quality[ rec_quality > (66*500)])/60
 					row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 					writer.writerow(row_new)
 					
@@ -1469,7 +1553,7 @@ def e4_concatenate(project_folder, sub_nr, resampling=None):
 					full_df=pandas.DataFrame()
 
 
-					 #IBI is special case
+					#IBI is special case
 					if data_type=='IBI.csv':
 							
 						#Select Directory from available list
@@ -1687,6 +1771,16 @@ def dir_path_create(pathstring):
 	else:
 		return None
 
+def file_path(pathstring):
+	pathstring = os.path.normpath(pathstring)
+	if nullable_string(pathstring):
+		if os.path.isfile(pathstring):
+			return pathstring
+		else:
+			print("'%s' is not a file" % pathstring)
+			raise NotADirectoryError(pathstring)
+	return None
+
 """
 	comment
 	TODO:
@@ -1718,9 +1812,30 @@ if __name__ == "__main__":
 	parser.add_argument('--path_output', type=dir_path_create,
 					help="An optional path to the folder where the requested output will be stored (default is in the init dirctory subfolder 'output')")
 
+	# Optional argument
+	parser.add_argument('--devices', type=str,
+					help="An optional arguement to specify all the devices default is --devices='all' which is equivalent to --devices='zmx|emp|apl|app'")
+
 	# Switch
-	parser.add_argument('--no_reexport_on_init', action='store_false',
-					help='switch to indicate if on init also some wearable files should NOT be reexported in more concise formats')
+	parser.add_argument('--reexport_on_init', action='store_true',
+					help='switch to indicate if on init also some wearable files should be reexported in more concise formats')
+
+	# Switch
+	parser.add_argument('--do_file_logging', action='store_true',
+					help='switch to indicate if stdout and stderr are redirected to a logging file')
+
+	# Switch
+	parser.add_argument('--zmax_ppgparser', action='store_true',
+					help='Switch to indicate if ZMax PPGParser.exe is used to reparse some heart rate related channels')
+
+	# Optional argument
+	parser.add_argument('--zmax_ppgparser_exe_path', type=file_path,
+					help='direct and full path to the ZMax PPGParser.exe in the Hypnodyne ZMax software folder')
+
+	# Optional argument
+	parser.add_argument('--zmax_ppgparser_timeout', type=float,
+					help='An optional timeout to run the ZMax PPGParser.exe in seconds. If empty no timeout is used')
+
 
 	"""
 	TODO DELETE:
@@ -1765,9 +1880,39 @@ if __name__ == "__main__":
 	if args.path_output is not None:
 		path_output = args.path_output
 
-	reexport_on_init = True
-	if args.no_reexport_on_init is not None:
-		reexport_on_init = args.no_reexport_on_init
+	devices = 'all'
+	if args.devices is not None:
+		devices = args.devices
+
+	reexport_on_init = False
+	if args.reexport_on_init is not None:
+		reexport_on_init = args.reexport_on_init
+
+	do_file_logging = False
+	if args.do_file_logging is not None:
+		do_file_logging = args.do_file_logging
+
+	zmax_ppgparser = False
+	if args.zmax_ppgparser is not None:
+		zmax_ppgparser = args.zmax_ppgparser
+
+	zmax_ppgparser_exe_path = 'PPGParser.exe' # in the current working directory
+	if args.zmax_ppgparser_exe_path is not None:
+		zmax_ppgparser_exe_path = args.zmax_ppgparser_exe_path
+
+	zmax_ppgparser_timeout = None # in the current working directory
+	if args.zmax_ppgparser_timeout is not None:
+		zmax_ppgparser_timeout = args.zmax_ppgparser_timeout
+
+	# logging redirect #
+	if do_file_logging:
+		stdout_logger = logging.getLogger('STDOUT')
+		sl = StreamToLogger(stdout_logger, logging.INFO)
+		sys.stdout = sl
+
+		stderr_logger = logging.getLogger('STDERR')
+		sl = StreamToLogger(stderr_logger, logging.ERROR)
+		sys.stderr = sl
 
 	if args.function == 'test':
 		#--tests--#
@@ -1855,12 +2000,16 @@ if __name__ == "__main__":
 	elif args.function == 'init':
 		wearable_file_structure_annotation_csv = "wearabout_0.csv"
 		wearable_file_structure_annotation_datetime_csv = "wearabout_1_annotation.csv"
+		wearable_file_structure_annotation_datetime_sync_csv = "wearabout_2_annotation_sync.csv"
 
-		parse_wearable_data_write_csv(parentdirpath=path_data,filepath_csv_out=wearable_file_structure_annotation_csv,device='zmax')
-		parse_wearable_data_with_csv_annotate_datetimes(parentdirpath=path_data,filepath_csv_in=wearable_file_structure_annotation_csv,filepath_csv_out=wearable_file_structure_annotation_datetime_csv,device='zmax', reexport=reexport_on_init)
+		parse_wearable_data_write_csv(parentdirpath=path_data,filepath_csv_out=wearable_file_structure_annotation_csv,device=devices)
+		parse_wearable_data_with_csv_annotate_datetimes(parentdirpath=path_data,filepath_csv_in=wearable_file_structure_annotation_csv,filepath_csv_out=wearable_file_structure_annotation_datetime_csv, device=devices, reexport=reexport_on_init, zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout)
+		sync_wearables(parentdirpath=path_data, filepath_csv_in=wearable_file_structure_annotation_datetime_csv, filepath_csv_out=wearable_file_structure_annotation_datetime_sync_csv, device=devices)
 
+		print("init finished")
 	elif args.function == 'request':
-		pass
+
+		print("request finished")
 	else:
 		parser.error("function unknown")
 
