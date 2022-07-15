@@ -840,7 +840,7 @@ def window_selector(raw):
 # =============================================================================
 # 
 # =============================================================================
-def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable='zmx', channel='bvp',  offset_seconds=0.0): 
+def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable='zmx', resample_hz=None, offset_seconds=0.0): 
 	"""get raw data file according to time stamps
 	"""
 	# parse file parts
@@ -854,9 +854,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	if wearable=='zmx':
 		raw=read_edf_to_raw_zipped(filepath)
 	elif wearable=='emp':
-		raw=read_e4_to_raw_list(filepath)
-		if channel=='bvp':
-			raw=raw[0]
+		raw=read_e4_to_raw(filepath)
 	elif wearable=='apl': #TODO: Add apl files
 		 pass
 	 
@@ -909,6 +907,8 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	mne_info=mne.create_info(ch_names=list(raw_df.columns), sfreq=raw.info['sfreq'])
 	raw_full=mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
 	raw_full.set_meas_date( raw_df.index[0])
+	if resample_hz!=None:
+		raw_full=uneven_raw_resample(raw_full, resample_hz)
 	return(raw_full)
 
 
@@ -920,14 +920,14 @@ def uneven_raw_resample(raw, resample_hz):
 	raw_df=raw_df.resample(resample_offset).ffill()
 	# convert back to mne.rwa
 	mne_info=mne.create_info(ch_names=list(raw_df.columns), sfreq=resample_hz)
-	raw_full=mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
-	raw_full.set_meas_date(raw_df.index[0])
-	return raw_full
+	raw=mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
+	raw.set_meas_date(raw_df.index[0])
+	return raw
 
 # =============================================================================
 # 
 # =============================================================================
-def raw_detect_heart_rate_PPG(raw, ppg_channel, resampling_hz=2): #TODO
+def raw_detect_heart_rate_PPG(raw, ppg_channel, resampling_hz=2): #TODO: Rayyan
 	"""
 	Detect the PPG artifacts in heart rate
 	Detect the heartrate and outlier heart rates, 
