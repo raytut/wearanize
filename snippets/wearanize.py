@@ -88,6 +88,118 @@ class StreamToLogger(object):
 	def write(self, buf):
 		for line in buf.rstrip().splitlines():
 			self.logger.log(self.log_level, line.rstrip())
+			
+			
+
+_Meta = namedtuple('Meta', [
+	'firmware', 'bitdepth', 'resolution', 'hz', 'axes',
+	'start_datetime', 'stop_datetime', 'duration',
+	'start_condition', 'stop_condition', 'file_code', 'device_id'
+	])
+
+
+class Meta(_Meta):
+	"""
+	A namedtuple with fields for the activPAL raw data's metadata.
+	Parameters
+	----------
+	firmware : int
+	bitdepth : int
+	resolution : int
+	hz : int
+	axes : int
+	start_datetime : datetime.datetime
+	stop_datetime : datetime.datetime
+	duration : datetime.timedelta
+	start_condition : str
+	stop_condition : str
+	file_code : str
+	device_id : int
+	"""
+
+	__slots__ = ()
+
+class ActivpalData(object):
+	"""
+	An object to wrap activPAL data.
+	Methods
+	-------
+	TODO
+	See Also
+	--------
+	load_activpal_data : Returns the data from an activPAL data file as a
+		tuple (metadata, signals).
+	"""
+
+	def __init__(self, file_path):
+		"""
+		Create an instance of an activpal_data object.
+		Parameters
+		----------
+		file_path : str
+			The path to an activPAL raw data file.
+		"""
+		data = load_activpal_data(file_path)
+		self._metadata = data[0]
+		data_g = (numpy.array(data[1], dtype=numpy.float64, order='F') - 127) / 63
+		interval = pandas.tseries.offsets.Milli() * (1000 / data[0].hz)
+		ind = pandas.date_range(data[0].start_datetime, periods=len(data[1]),
+							freq=interval)
+		self._signals = pandas.DataFrame(data_g, columns=['x', 'y', 'z'], index=ind)
+
+	@property
+	def metadata(self):
+		"""namedtuple : The information extracted from the files header."""
+		return self._metadata
+
+	@property
+	def signals(self):
+		"""pandas.DataFrame : The sensor signals."""
+		return self._signals.copy()
+
+	@property
+	def data(self):
+		"""pandas.DataFrame : Depricated - use signals."""
+		warnings.warning('activpal_data.data is depricated use activpal_data.signals')
+		return self.signals
+
+	@property
+	def timestamps(self):
+		"""pandas.DatetimeIndex : The timestams of the signals."""
+		return self.signals.index
+
+	@property
+	def x(self):
+		"""pandas.Series : The signal from the x axis."""
+		if 'x' not in self._signals.columns:
+			raise AttributeError('activpal_data property X no longer exists.\
+								 The signals must have been interfered with.')
+		return self._signals['x'].copy()
+	
+	@property
+	def y(self):
+		"""pandas.Series : The signal from the y axis."""
+		if 'y' not in self._signals.columns:
+			raise AttributeError('activpal_data property Y no longer exists.\
+								 The signals must have been interfered with.')
+		return self._signals['y'].copy()
+
+	@property
+	def z(self):
+		"""pandas.Series : The signal from the z axis."""
+		if 'z' not in self._signals.columns:
+			raise AttributeError('activpal_data property Z no longer exists.\
+								 The signals must have been interfered with.')
+		return self._signals['z'].copy()
+
+	@property
+	def rss(self):
+		"""pandas.Series : The Root Sum of Squares of the x, y, z axes."""
+		if 'rss' not in self._signals.columns:
+			sqr = numpy.square(self._signals[['x', 'y', 'z']])
+			sumsqr = numpy.sum(sqr, axis=1)
+			self._signals['rss'] = numpy.sqrt(sumsqr)
+		return self._signals['rss'].copy()
 
 # functions #
 
@@ -541,33 +653,6 @@ def write_raw_to_edf_zipped(raw, zippath, format="zmax_edf", compresslevel=6):
 # Activpal Stuff: Extracted directly from uos_activpal due to com
 # =============================================================================
 
-_Meta = namedtuple('Meta', [
-	'firmware', 'bitdepth', 'resolution', 'hz', 'axes',
-	'start_datetime', 'stop_datetime', 'duration',
-	'start_condition', 'stop_condition', 'file_code', 'device_id'
-	])
-
-
-class Meta(_Meta):
-	"""
-	A namedtuple with fields for the activPAL raw data's metadata.
-	Parameters
-	----------
-	firmware : int
-	bitdepth : int
-	resolution : int
-	hz : int
-	axes : int
-	start_datetime : datetime.datetime
-	stop_datetime : datetime.datetime
-	duration : datetime.timedelta
-	start_condition : str
-	stop_condition : str
-	file_code : str
-	device_id : int
-	"""
-
-	__slots__ = ()
 
 
 def change_file_code(filepath, new_code):
@@ -793,89 +878,6 @@ def load_activpal_data(filepath):
 	signals = extract_apl_accelerometer_data(file_content[header_end:],
 										 metadata.firmware, file_ext == '.datx')
 	return (metadata, signals)
-
-
-class ActivpalData(object):
-	"""
-	An object to wrap activPAL data.
-	Methods
-	-------
-	TODO
-	See Also
-	--------
-	load_activpal_data : Returns the data from an activPAL data file as a
-		tuple (metadata, signals).
-	"""
-
-	def __init__(self, file_path):
-		"""
-		Create an instance of an activpal_data object.
-		Parameters
-		----------
-		file_path : str
-			The path to an activPAL raw data file.
-		"""
-		data = load_activpal_data(file_path)
-		self._metadata = data[0]
-		data_g = (numpy.array(data[1], dtype=numpy.float64, order='F') - 127) / 63
-		interval = pandas.tseries.offsets.Milli() * (1000 / data[0].hz)
-		ind = pandas.date_range(data[0].start_datetime, periods=len(data[1]),
-							freq=interval)
-		self._signals = pandas.DataFrame(data_g, columns=['x', 'y', 'z'], index=ind)
-
-	@property
-	def metadata(self):
-		"""namedtuple : The information extracted from the files header."""
-		return self._metadata
-
-	@property
-	def signals(self):
-		"""pandas.DataFrame : The sensor signals."""
-		return self._signals.copy()
-
-	@property
-	def data(self):
-		"""pandas.DataFrame : Depricated - use signals."""
-		warnings.warning('activpal_data.data is depricated use activpal_data.signals')
-		return self.signals
-
-	@property
-	def timestamps(self):
-		"""pandas.DatetimeIndex : The timestams of the signals."""
-		return self.signals.index
-
-	@property
-	def x(self):
-		"""pandas.Series : The signal from the x axis."""
-		if 'x' not in self._signals.columns:
-			raise AttributeError('activpal_data property X no longer exists.\
-								 The signals must have been interfered with.')
-		return self._signals['x'].copy()
-	
-	@property
-	def y(self):
-		"""pandas.Series : The signal from the y axis."""
-		if 'y' not in self._signals.columns:
-			raise AttributeError('activpal_data property Y no longer exists.\
-								 The signals must have been interfered with.')
-		return self._signals['y'].copy()
-
-	@property
-	def z(self):
-		"""pandas.Series : The signal from the z axis."""
-		if 'z' not in self._signals.columns:
-			raise AttributeError('activpal_data property Z no longer exists.\
-								 The signals must have been interfered with.')
-		return self._signals['z'].copy()
-
-	@property
-	def rss(self):
-		"""pandas.Series : The Root Sum of Squares of the x, y, z axes."""
-		if 'rss' not in self._signals.columns:
-			sqr = numpy.square(self._signals[['x', 'y', 'z']])
-			sumsqr = numpy.sum(sqr, axis=1)
-			self._signals['rss'] = numpy.sqrt(sumsqr)
-		return self._signals['rss'].copy()
 
 
 def apl_to_raw(filepath):
