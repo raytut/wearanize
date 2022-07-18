@@ -935,8 +935,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 		raw = read_edf_to_raw_zipped(filepath)
 	elif wearable == 'emp':
 		raw = read_e4_to_raw_list(filepath)
-		if channel == 'bvp':
-			raw = raw[0]	elif wearable == 'apl': #TODO: Add apl files
+	elif wearable == 'apl': #TODO: Add apl files
 		pass
 	 
 	# convert to dateframe and subset time window    
