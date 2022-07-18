@@ -539,7 +539,43 @@ def app_to_long(filepath):
 		df_ema=df_ema_ids.join(df_ema)
 		return(df_ema)
 	
+
+def full_app_to_long(filename, output=None):
+	app_wide=pandas.read_csv(filename, na_values=' ', low_memory=False)
+	app_long=pandas.DataFrame()
 	
+	for week in range(1,4):
+		# subset
+		app_pre=app_wide[app_wide.SURVEY_ID==week]
+		app_pre_ids=app_pre.iloc[:,0:4]
+		# clean up headers
+		app_pre=app_pre.filter(regex=(str(week) +'$'),axis=1)
+		app_pre=app_pre.rename(columns = lambda x : str(x)[:-2])
+		app_pre=app_pre_ids.join(app_pre)
+		# rejoin
+		app_long=pandas.concat([app_long, app_pre], axis=0)
+	
+	# reformat date times
+	app_long.loc[app_long.iloc[:,4]==' ']='nan'
+	app_long.iloc[:,4]=pandas.to_datetime(app_long.iloc[:,4], format='%m/%d/%Y %H:%M:%S')
+	app_long.loc[app_long.iloc[:,71]==' ']='nan'
+	app_long.iloc[:,71]=pandas.to_datetime(app_long.iloc[:,71], format='%m/%d/%Y %H:%M:%S')
+	
+	# metric calculations
+	app_long['completion_time_beep']=app_long['EMA_timestamp_end_beep_']- app_long['EMA_timestamp__start_beep_']
+	app_long['completion_time_window_yn']=app_long['completion_time_beep'].between(datetime.timedelta(seconds=(400*70/1000)), datetime.timedelta(seconds=(60*15)))
+	# Per subject/session
+	app_group=pandas.DataFrame()
+	for name, group in app_long.groupby(by=['EMA_ID', 'SURVEY_ID']):
+		group['completion_time_average']=numpy.mean(group['completion_time_beep'])
+		group['compliance']=len(group.EMA_ID)/60
+		app_group=pandas.concat([app_group, group])
+	
+	if output!=None:
+		app_group.to_csv(output)
+		
+	return app_group
+
 # =============================================================================
 # 		
 # =============================================================================
