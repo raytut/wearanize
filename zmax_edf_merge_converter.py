@@ -400,6 +400,23 @@ def file_path(pathstring):
 			raise NotADirectoryError(pathstring)
 	return None
 
+def dir_path_create(pathstring):
+	if nullable_string(pathstring):
+		try:
+			pathstring = dir_path(pathstring)
+			return pathstring
+		except NotADirectoryError:
+			try:
+				os.makedirs(pathstring, exist_ok=True)
+				print("Directory '%s' was not existent and was created" %pathstring)
+			except:
+				print("Directory '%s' was could not be created" %pathstring)
+				NotADirectoryError(pathstring)
+			finally:
+				return nullable_string(pathstring)
+	else:
+		return None
+
 # =============================================================================
 # 
 # =============================================================================

@@ -72,7 +72,7 @@ import logging
 import traceback
 import subprocess
 
-from zmax_edf_merge_converter import fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped
+from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped
 
 # constants #
 FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT = "_merged"
@@ -1034,9 +1034,9 @@ def sync_reach(list_datetimes_paired, min_reach_duration_seconds=3600):
 	-------
 	list :
 			list[0]: index of the original start_stop pair in the list with the earliest start
-			list[1]:index of the original start_stop pair in reach with the later start
-			list[2]:the offset in datetime.timedelta to add to the first pair to match the second pair start time
-			list[3]:the overlap in datetime.timedelta that the events share
+			list[1]: index of the original start_stop pair in reach with the later start
+			list[2]: the offset in datetime.timedelta to add to the first pair to match the second pair start time
+			list[3]: the overlap in datetime.timedelta that the events share
 	"""
 	list_indices_paired_offsetTo2nd_overlap = []
 	min_reach_duration_datetime = datetime.timedelta(seconds=min_reach_duration_seconds)
@@ -1119,8 +1119,8 @@ def sync_signals(signal_ref, signal_sync, fsample, chunk_size_seconds=60*10, chu
 
 def raw_append_signal(raw, signal, ch_name):
 	# Create MNE Raw object and add to a list of objects
-	mne_info=mne.create_info(ch_names=[ch_name], sfreq=raw.info.get("sfreq"), ch_types="misc")
-	mne_raw_signal=mne.io.RawArray([signal], mne_info)
+	mne_info = mne.create_info(ch_names=[ch_name], sfreq=raw.info.get("sfreq"), ch_types="misc")
+	mne_raw_signal = mne.io.RawArray([signal], mne_info)
 	raw.add_channels([mne_raw_signal])
 	return raw
 
@@ -1495,50 +1495,6 @@ def e4_concatente_par(project_folder, verbose=0):
 	# Get list of subjects
 	sub_list=glob.glob(project_folder + "/sub-*")
 	Parallel(n_jobs=-2, verbose=verbose)(delayed(e4_concatenate)(project_folder, i) for i in sub_list)
-
-
-def nullable_string(val):
-	if not val:
-		return None
-	return val
-
-
-def dir_path(pathstring):
-	pathstring = os.path.normpath(pathstring)
-	if nullable_string(pathstring):
-		if os.path.isdir(pathstring):
-			return pathstring
-		else:
-			raise NotADirectoryError(pathstring)
-	return None
-	
-	
-def dir_path_create(pathstring):
-	if nullable_string(pathstring):
-		try:
-			pathstring = dir_path(pathstring)
-			return pathstring
-		except NotADirectoryError:
-			try:
-				os.makedirs(pathstring, exist_ok=True)
-				print("Directory '%s' was not existent and was created" %pathstring)
-			except:
-				print("Directory '%s' was could not be created" %pathstring)
-				NotADirectoryError(pathstring)
-			finally:
-				return nullable_string(pathstring)
-	else:
-		return None
-
-def file_path(pathstring):
-	pathstring = os.path.normpath(pathstring)
-	if nullable_string(pathstring):
-		if os.path.isfile(pathstring):
-			return pathstring
-		else:
-			print("'%s' is not a file" % pathstring)
-			raise NotADirectoryError(pathstring)
-	return None
 
 """
 	comment
