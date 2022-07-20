@@ -97,8 +97,6 @@ _Meta = namedtuple('Meta', [
 	'start_datetime', 'stop_datetime', 'duration',
 	'start_condition', 'stop_condition', 'file_code', 'device_id'
 	])
-
-
 class Meta(_Meta):
 	"""
 	A namedtuple with fields for the activPAL raw data's metadata.
@@ -117,7 +115,6 @@ class Meta(_Meta):
 	file_code : str
 	device_id : int
 	"""
-
 	__slots__ = ()
 
 class ActivpalData(object):
@@ -410,8 +407,6 @@ def full_app_to_long(filename, output=None):
 # =============================================================================
 # Activpal Stuff: Extracted directly from uos_activpal due to com
 # =============================================================================
-
-
 
 def change_file_code(filepath, new_code):
 	"""
@@ -1129,7 +1124,7 @@ def raw_append_signal(raw, signal, ch_name):
 #
 # =============================================================================
 
-def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z):
+def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, ch_name='integrated_acc'):
 	# Get the data from channels
 	acc_x=raw.get_data(ch_name_acc_x)
 	acc_y=raw.get_data(ch_name_acc_y)
@@ -1143,7 +1138,7 @@ def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z):
 	# Calculate mean displacement
 	net_displacement=numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)
 
-	return raw_append_signal(raw, net_displacement[0], ch_name="integrated_acc")
+	return raw_append_signal(raw, net_displacement[0], ch_name)
 
 
 # =============================================================================
