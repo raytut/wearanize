@@ -284,6 +284,10 @@ def read_e4_to_raw_list(filepath):
 				sfreq=int(raw.iloc[0,0])
 				timestamp=int(float(raw.columns[0]))
 				mne_info=mne.create_info(ch_names=["acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
+				# convert to standard gunits
+				raw.iloc[1:,0] = raw.iloc[1:,0]*2/128
+				raw.iloc[1:,1] = raw.iloc[1:,1]*2/128
+				raw.iloc[1:,2] = raw.iloc[1:,2]*2/128
 				# Create MNE Raw object and add to a list of objects
 				mne_obj=mne.io.RawArray([raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=0)
 				mne_obj.set_meas_date(timestamp)
@@ -679,24 +683,27 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	"""get raw data file according to time stamps
 	"""
 	# parse file parts
-	sub_path, wearable_file, extension=fileparts(filepath)
+	sub_path, wearable_file, extension = fileparts(filepath)
 	
 	#find the start date and end date
-	start_date=datetime_ts
-	end_date=start_date + datetime.timedelta(seconds=duration_seconds)
+	start_date = datetime_ts
+	end_date = start_date + datetime.timedelta(seconds=duration_seconds)
 	
 	# Get primary signal
 	if wearable == 'zmx':
 		raw = read_edf_to_raw_zipped(filepath)
+	elif wearable == 'zmx-merge':
+		temp_dir = safe_zip_dir_extract(filepath)
+		raw=read_edf_to_raw(glob.glob(temp_dir.name+"/*")[0], format='edf')
 	elif wearable == 'emp':
 		raw = read_e4_to_raw_list(filepath)
 	elif wearable == 'apl': #TODO: Add apl files
 		pass
 	 
 	# convert to dateframe and subset time window    
-	raw_df=raw.to_data_frame(time_format='datetime')
-	raw_df=raw_df[(raw_df.time > start_date) & (raw_df.time < end_date)]   
-	raw_df=raw_df.set_index('time', drop=True)
+	raw_df = raw.to_data_frame(time_format='datetime')
+	raw_df = raw_df[(raw_df.time > start_date) & (raw_df.time < end_date)]   
+	raw_df = raw_df.set_index('time', drop=True)
 	
 	#list all files and search all the relevant files that fall within these time limits
 	print("Searching all wearable files in directory...")
