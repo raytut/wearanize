@@ -966,8 +966,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	if wearable == 'zmx':
 		raw = read_edf_to_raw_zipped(filepath)
 	elif wearable == 'zmx-merge':
-		temp_dir = safe_zip_dir_extract(filepath)
-		raw=read_edf_to_raw(glob.glob(temp_dir.name+"/*")[0], format='edf')
+		raw = read_edf_to_raw_zipped(filepath, format='edf')
 	elif wearable == 'emp':
 		raw = read_e4_to_raw_list(filepath)
 	elif wearable == 'apl': #TODO: Add apl files
@@ -1669,6 +1668,7 @@ if __name__ == "__main__":
 
 	if args.function == 'test':
 		#--tests--#
+		raw_reread = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW_merged.zip", format="edf")
 
 		dt1_start = datetime.datetime(2000, 1, 1, 0,0,0)
 		dt1_stop = dt1_start + datetime.timedelta(hours=6)
@@ -1683,10 +1683,10 @@ if __name__ == "__main__":
 		list_datetimes_paired = [[dt1_start, dt1_stop], [dt2_start, dt2_stop], [dt3_start, dt3_stop], [dt4_start, dt4_stop], [dt5_start, dt5_stop]]
 		print(sync_reach(list_datetimes_paired, min_reach_duration_seconds=3600))
 
-		raw = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW.zip", format="zmax_edf")
+		#raw = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW.zip", format="zmax_edf")
 		#write_raw_to_edf(raw, "Y:/HB/data/test_data_zmax/FW.merged.edf", format="zmax_edf")  # treat as a speacial zmax read EDF for export
 		#write_raw_to_edf_zipped(raw, "Y:/HB/data/test_data_zmax/FW.merged.zip", format="zmax_edf") # treat as a speacial zmax read EDF for export
-		#raw_reread = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW.merged.zip", format="edf")
+		#raw_reread = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW_merged.zip", format="edf")
 		#write_raw_to_edf_zipped(raw, "Y:/HB/data/test_data_zmax/FW.merged.reread.zip", format="zmax_edf") # treat as a speacial zmax read EDF for export
 
 		signal_integrated_acc = raw_append_integrate_acc(raw, 'dX', 'dX', 'dZ').get_data(picks=["integrated_acc"])
