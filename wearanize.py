@@ -1030,7 +1030,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	if resample_hz!=None:
 		raw_full=uneven_raw_resample(raw_full, resample_hz)
 
-	return raw_df
+	return raw_full
 
 
 def uneven_raw_resample(raw, resample_hz):
