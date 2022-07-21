@@ -333,20 +333,21 @@ def read_e4_to_raw_list(filepath):
 	return mne_raw_list
 
 
-def read_e4_to_raw(filepath, resample_Hz=64):
+def read_e4_to_raw(filepath, resample_Hz=64, interpolate_method='pad'):
 	mne_raw_list = read_e4_to_raw_list(filepath)
 	mne_raw_list_new = []
-	mne_raw_df=pandas.DataFrame()
+	mne_raw_df = pandas.DataFrame()
 	for i, raw in enumerate(mne_raw_list):
-		if raw!="unretrieved":
+		if raw != "unretrieved":
 			mne_raw_list_new.append(raw.resample(resample_Hz))
-			mne_temp_df=mne_raw_list_new[i].to_data_frame(time_format="datetime")
-			mne_temp_df=mne_temp_df.set_index('time', drop=True)
-			mne_raw_df=pandas.concat([mne_raw_df, mne_temp_df], axis=1)
+			mne_temp_df = mne_raw_list_new[i].to_data_frame(time_format="datetime")
+			mne_temp_df = mne_temp_df.set_index('time', drop=True)
+			mne_raw_df = pandas.concat([mne_raw_df, mne_temp_df], axis=1)
 
 	# append the raws together
-	mne_raw_info=mne.create_info(ch_names=list(mne_raw_df.columns), sfreq=resample_Hz)
-	mne_raw_np=mne_raw_df.to_numpy().transpose()
+	mne_raw_info = mne.create_info(ch_names = list(mne_raw_df.columns), sfreq=resample_Hz)
+	mne_raw_df = mne_raw_df.interpolate(method=interpolate_method)
+	mne_raw_np = mne_raw_df.to_numpy().transpose()
 	raw=mne.io.RawArray(mne_raw_np, mne_raw_info)
 	raw.set_meas_date(mne_raw_list[0].info['meas_date'])
 	return(raw)
@@ -889,6 +890,8 @@ def apl_window_to_raw(filepath, wearable, buffer_seconds=0):
 	# get wearable data in raw
 	if wearable == 'zmx':
 		raw_source = read_edf_to_raw_zipped(filepath)
+	elif wearable == 'zmx-merge':
+		raw_source = read_edf_to_raw_zipped(filepath, format='edf')
 	elif wearable == 'emp':
 		raw_source = read_e4_to_raw(filepath)
 	
@@ -1027,21 +1030,22 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	mne_info=mne.create_info(ch_names=list(raw_df.columns), sfreq=raw.info['sfreq'])
 	raw_full=mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
 	raw_full.set_meas_date( raw_df.index[0])
-	if resample_hz!=None:
+	if resample_hz != None:
 		raw_full=uneven_raw_resample(raw_full, resample_hz)
 
 	return raw_full
 
 
-def uneven_raw_resample(raw, resample_hz):
+def uneven_raw_resample(raw, resample_hz, interpolation_method='pad'):
 	# set resampling string for use with pandas
-	resample_offset=(str(1/resample_hz)+'S')
-	raw_df=raw.to_data_frame(time_format='datetime')
-	raw_df=raw_df.set_index('time', drop=True)
-	raw_df=raw_df.resample(resample_offset).ffill()
+	resample_offset = (str(1/resample_hz)+'S')
+	raw_df = raw.to_data_frame(time_format='datetime')
+	raw_df = raw_df.set_index('time', drop=True)
+	raw_df = raw_df.resample(resample_offset).ffill()
+	raw_df = raw_df.interpolate(method=interpolation_method)
 	# convert back to mne.rwa
-	mne_info=mne.create_info(ch_names=list(raw_df.columns), sfreq=resample_hz)
-	raw=mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
+	mne_info = mne.create_info(ch_names=list(raw_df.columns), sfreq=resample_hz)
+	raw = mne.io.RawArray(raw_df.to_numpy().transpose(), mne_info) 
 	raw.set_meas_date(raw_df.index[0])
 	return raw
 
