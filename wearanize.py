@@ -226,8 +226,14 @@ def parse_wearable_filepath_info(filepath):
 	path, name, extension = fileparts(filepath)
 
 	name_parts = name.split(split_str)
+	path_parts = path.split(os.sep)
+	subject_path_id = ''
+	for p in path_parts:
+		if 'sub-HB' in p:
+			subject_path_id = p
+			break
 
-	subject_id = name_parts[0]
+	subject_file_id = name_parts[0]
 	period = name_parts[1]
 	datatype = name_parts[2]
 	if name_parts[2]=="app-ema":
@@ -240,7 +246,7 @@ def parse_wearable_filepath_info(filepath):
 	else:
 		session = ''
 
-	return {'subject_id': subject_id, 'filepath':  filepath, 'period':  period, 'datatype':  datatype, 'device_wearable':  device_wearable, 'session': session}
+	return {'subject_path_id': subject_path_id,'subject_file_id': subject_file_id, 'filepath':  filepath, 'period':  period, 'datatype':  datatype, 'device_wearable':  device_wearable, 'session': session}
 
 
 
@@ -1112,22 +1118,22 @@ def parse_wearable_data_write_csv(parentdirpath, filepath_csv_out, device='all')
 	filepath_list = find_wearable_files(parentdirpath, device)
 
 	with open(filepath_csv_out, 'w', newline='') as csvfile:
-		writer = csv.writer(csvfile, delimiter=',', quoting=csv.QUOTE_NONE)
-		writer.writerow(['subject_id', 'filepath', 'period', 'datatype', 'device_wearable', 'session'])
+		writer = csv.writer(csvfile, delimiter=',', quoting=csv.QUOTE_NONNUMERIC)
+		writer.writerow(['subject_path_id', 'subject_file_id', 'filepath', 'period', 'datatype', 'device_wearable', 'session'])
 		for filepath in filepath_list:
 			info = parse_wearable_filepath_info(filepath)
-			writer.writerow([info['subject_id'], info['filepath'], info['period'], info['datatype'], info['device_wearable'], info['session']])
+			writer.writerow([info['subject_path_id'],info['subject_file_id'], info['filepath'], info['period'], info['datatype'], info['device_wearable'], info['session']])
 
 # =============================================================================
 # Parser: adds info
 # =============================================================================
-def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_in, filepath_csv_out, device='all', reexport=True, zmax_ppgparser=False, zmax_ppgparser_exe_path=None, zmax_ppgparser_timeout=None):
+def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_in, filepath_csv_out, device='all'):
 	device = parseDevice(device)
-	df_csv_in = pandas.read_csv(filepath_csv_in)
+	df_csv_in = pandas.read_csv(filepath_csv_in, quoting=csv.QUOTE_NONNUMERIC)
 	df_csv_in.reset_index()  # make sure indexes pair with number of rows
 
 	with open(filepath_csv_out, 'w', newline='') as csvfile2:
-		writer = csv.writer(csvfile2, delimiter=',', quoting=csv.QUOTE_NONE, escapechar='\\')
+		writer = csv.writer(csvfile2, delimiter=',', quoting=csv.QUOTE_NONNUMERIC, escapechar='\\')
 
 		header_new = numpy.append(df_csv_in.columns.values, ['signal', 'rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'sampling_rate_max_Hz', 'rec_quality'])
 		writer.writerow(header_new)
@@ -1154,15 +1160,6 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 						rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
 						sampling_rate_max_Hz = raw.info['sfreq']
 						rec_quality = raw_zmax_data_quality(raw)
-						if reexport:
-							path, name, extension = fileparts(filepath_full)
-							reexport_filepath = path + os.sep + name + FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT + ".zip"
-							try:
-								write_raw_to_edf_zipped(raw, reexport_filepath, format="zmax_edf") # treat as a speacial zmax read EDF for export
-								print("Re-exported '%s' to '%s'" % (filepath_full, reexport_filepath))
-							except Exception:
-								print(traceback.format_exc())
-								print("Failed to re-export '%s' to '%s'" % (filepath, reexport_filepath))
 						signal="zmx_all"
 						row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 						writer.writerow(row_new)
@@ -1470,33 +1467,33 @@ def get_signal(filepath, wearable, type = 'acc'):
 # 
 # =============================================================================
 def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all'):
-	df_csv_in = pandas.read_csv(filepath_csv_in)
+	df_csv_in = pandas.read_csv(filepath_csv_in, quoting=csv.QUOTE_NONNUMERIC)
 	df_csv_in.reset_index()  # make sure indexes pair with number of rows
 
-	grouped_by_subject = df.groupby('subject_id', sort=False)
+	grouped_by_subject = df_csv_in.groupby('subject_path_id', sort=False)
 	signal_types_valid = ["zmx_all", 'ACC.csv']
 	first_rows_written = False
-	for subject_id, df_by_subject_id in grouped_by_subject:
-		df_by_subject_id_filtered = df_by_subject_id.signal.isin(signal_types_valid)
+	for subject_path_id, df_by_subject_path_id in grouped_by_subject:
+		df_by_subject_path_id_filtered = df_by_subject_path_id.signal.isin(signal_types_valid)
 
 		# create empty columns to fill potentially with sync infos
-		df_by_subject_id_filtered['rec_start_datetime_reference'] = numpy.datetime64("NaT")
-		df_by_subject_id_filtered['rec_stop_datetime_reference'] = numpy.datetime64("NaT")
-		df_by_subject_id_filtered['rec_duration_datetime_reference'] = numpy.datetime64("NaT")
-		df_by_subject_id_filtered['sampling_rate_max_Hz_reference_adaption'] = numpy.NAN
+		df_by_subject_path_id_filtered['rec_start_datetime_reference'] = numpy.datetime64("NaT")
+		df_by_subject_path_id_filtered['rec_stop_datetime_reference'] = numpy.datetime64("NaT")
+		df_by_subject_path_id_filtered['rec_duration_datetime_reference'] = numpy.datetime64("NaT")
+		df_by_subject_path_id_filtered['sampling_rate_max_Hz_reference_adaption'] = numpy.NAN
 
 
 		['rec_start_datetime_reference', 'rec_stop_datetime_reference', 'rec_duration_datetime_reference', 'sampling_rate_max_Hz_reference_adaption']
 		list_datetimes_paired = []
-		for row in df_by_subject_id_filtered:
-			list_datetimes_paired.append([row.rec_start_datetime, row.df_by_subject_id_filtered.rec_stop_datetime])
+		for row in df_by_subject_path_id_filtered:
+			list_datetimes_paired.append([row.rec_start_datetime, row.df_by_subject_path_id_filtered.rec_stop_datetime])
 
 		list_indices_paired_offsetTo2nd_overlap = sync_reach(list_datetimes_paired)
 		for i_i2_p_o_o in list_indices_paired_offsetTo2nd_overlap:
 			i = i_i2_p_o_o[0]
 			i2 = i_i2_p_o_o[1]
-			device_wearable_i = df_by_subject_id_filtered.device_wearable[i]
-			device_wearable_i2 = df_by_subject_id_filtered.device_wearable[i2]
+			device_wearable_i = df_by_subject_path_id_filtered.device_wearable[i]
+			device_wearable_i2 = df_by_subject_path_id_filtered.device_wearable[i2]
 			i_sync = None
 			i_ref = None
 
@@ -1509,36 +1506,36 @@ def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all
 				i_sync = i2
 				i_ref = i
 
-			device_wearable_sync = df_by_subject_id_filtered.device_wearable[i_sync]
-			device_wearable_ref = df_by_subject_id_filtered.device_wearable[i_ref]
+			device_wearable_sync = df_by_subject_path_id_filtered.device_wearable[i_sync]
+			device_wearable_ref = df_by_subject_path_id_filtered.device_wearable[i_ref]
 			fsample = 2
-			signal_sync = get_signal(filepath=df_by_subject_id_filtered.filepath[i_sync], wearable=device_wearable_sync, type='acc', resample=fsample)
-			signal_ref = get_signal(filepath=df_by_subject_id_filtered.filepath[i_ref], wearable=device_wearable_ref, type='acc', resample=fsample)
+			signal_sync = get_signal(filepath=df_by_subject_path_id_filtered.filepath[i_sync], wearable=device_wearable_sync, type='acc', resample=fsample)
+			signal_ref = get_signal(filepath=df_by_subject_path_id_filtered.filepath[i_ref], wearable=device_wearable_ref, type='acc', resample=fsample)
 			lag_seconds, dilation, lag_after_dilation_seconds, sample_rate_adaptation_factor = sync_signals(signal_ref, signal_sync, fsample)
 
-			rec_start_datetime_reference_i_sync = df_by_subject_id_filtered.rec_start_datetime[i_sync] + datetime.timedelta(seconds=lag_seconds)
-			rec_stop_datetime_reference_i_sync = df_by_subject_id_filtered.rec_stop_datetime[i_sync] + datetime.timedelta(seconds=lag_seconds)
-			sampling_rate_max_Hz_reference_adaption_i_sync = df_by_subject_id_filtered.sampling_rate_max_Hz_reference_adaption[i_ref] * sample_rate_adaptation_factor
+			rec_start_datetime_reference_i_sync = df_by_subject_path_id_filtered.rec_start_datetime[i_sync] + datetime.timedelta(seconds=lag_seconds)
+			rec_stop_datetime_reference_i_sync = df_by_subject_path_id_filtered.rec_stop_datetime[i_sync] + datetime.timedelta(seconds=lag_seconds)
+			sampling_rate_max_Hz_reference_adaption_i_sync = df_by_subject_path_id_filtered.sampling_rate_max_Hz_reference_adaption[i_ref] * sample_rate_adaptation_factor
 
-			rec_start_datetime_reference_i_ref = df_by_subject_id_filtered.rec_start_datetime[i_ref]
-			rec_stop_datetime_reference_i_ref = df_by_subject_id_filtered.rec_stop_datetime[i_ref]
-			sampling_rate_max_Hz_reference_adaption_i_ref = df_by_subject_id_filtered.sampling_rate_max_Hz_reference_adaption[i_ref]
+			rec_start_datetime_reference_i_ref = df_by_subject_path_id_filtered.rec_start_datetime[i_ref]
+			rec_stop_datetime_reference_i_ref = df_by_subject_path_id_filtered.rec_stop_datetime[i_ref]
+			sampling_rate_max_Hz_reference_adaption_i_ref = df_by_subject_path_id_filtered.sampling_rate_max_Hz_reference_adaption[i_ref]
 
-			df_by_subject_id_filtered.loc[i_sync, 'rec_start_datetime_reference'] = rec_start_datetime_reference_i_sync
-			df_by_subject_id_filtered.loc[i_sync, 'rec_stop_datetime_reference'] = rec_stop_datetime_reference_i_sync
-			df_by_subject_id_filtered.loc[i_sync, 'rec_duration_datetime_reference'] = rec_stop_datetime_reference_i_sync - rec_start_datetime_reference_i_sync
-			df_by_subject_id_filtered.loc[i_sync, 'sampling_rate_max_Hz_reference_adaption'] = sampling_rate_max_Hz_reference_adaption_i_sync
+			df_by_subject_path_id_filtered.loc[i_sync, 'rec_start_datetime_reference'] = rec_start_datetime_reference_i_sync
+			df_by_subject_path_id_filtered.loc[i_sync, 'rec_stop_datetime_reference'] = rec_stop_datetime_reference_i_sync
+			df_by_subject_path_id_filtered.loc[i_sync, 'rec_duration_datetime_reference'] = rec_stop_datetime_reference_i_sync - rec_start_datetime_reference_i_sync
+			df_by_subject_path_id_filtered.loc[i_sync, 'sampling_rate_max_Hz_reference_adaption'] = sampling_rate_max_Hz_reference_adaption_i_sync
 
-			df_by_subject_id_filtered.loc[i_ref, 'rec_start_datetime_reference'] = rec_start_datetime_reference_i_ref
-			df_by_subject_id_filtered.loc[i_ref, 'rec_stop_datetime_reference'] = rec_stop_datetime_reference_i_ref
-			df_by_subject_id_filtered.loc[i_ref, 'rec_duration_datetime_reference'] = rec_stop_datetime_reference_i_ref - rec_start_datetime_reference_i_ref
-			df_by_subject_id_filtered.loc[i_ref, 'sampling_rate_max_Hz_reference_adaption'] = sampling_rate_max_Hz_reference_adaption_i_ref
+			df_by_subject_path_id_filtered.loc[i_ref, 'rec_start_datetime_reference'] = rec_start_datetime_reference_i_ref
+			df_by_subject_path_id_filtered.loc[i_ref, 'rec_stop_datetime_reference'] = rec_stop_datetime_reference_i_ref
+			df_by_subject_path_id_filtered.loc[i_ref, 'rec_duration_datetime_reference'] = rec_stop_datetime_reference_i_ref - rec_start_datetime_reference_i_ref
+			df_by_subject_path_id_filtered.loc[i_ref, 'sampling_rate_max_Hz_reference_adaption'] = sampling_rate_max_Hz_reference_adaption_i_ref
 
 		#write out in chunks of rows
 		if first_rows_written:
-			df_by_subject_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=False)
+			df_by_subject_path_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=False)
 		else:
-			df_by_subject_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=True)
+			df_by_subject_path_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=True)
 
 
 
@@ -1561,7 +1558,8 @@ if __name__ == "__main__":
 
 	# Required positional argument
 	parser.add_argument('function', type=str,
-					help="either 'init' to initialize the recording or 'request' to request data with additional arguments")
+					help="either 'reexport' to create more concise formats for the devices, or 'init' to initialize the infos, or 'request' to request data with additional arguments")
+
 
 	# Optional argument
 	parser.add_argument('--path_data', type=dir_path,
@@ -1578,10 +1576,6 @@ if __name__ == "__main__":
 	# Optional argument
 	parser.add_argument('--devices', type=str,
 					help="An optional arguement to specify all the devices default is --devices='all' which is equivalent to --devices='zmx|emp|apl|app'")
-
-	# Switch
-	parser.add_argument('--reexport_on_init', action='store_true',
-					help='switch to indicate if on init also some wearable files should be reexported in more concise formats')
 
 	# Switch
 	parser.add_argument('--do_file_logging', action='store_true',
@@ -1647,15 +1641,11 @@ if __name__ == "__main__":
 	if args.devices is not None:
 		devices = args.devices
 
-	reexport_on_init = False
-	if args.reexport_on_init is not None:
-		reexport_on_init = args.reexport_on_init
-
 	do_file_logging = False
 	if args.do_file_logging is not None:
 		do_file_logging = args.do_file_logging
 
-	zmax_ppgparser = False
+	zmax_ppgparser = True
 	if args.zmax_ppgparser is not None:
 		zmax_ppgparser = args.zmax_ppgparser
 
@@ -1663,7 +1653,7 @@ if __name__ == "__main__":
 	if args.zmax_ppgparser_exe_path is not None:
 		zmax_ppgparser_exe_path = args.zmax_ppgparser_exe_path
 
-	zmax_ppgparser_timeout = None # in the current working directory
+	zmax_ppgparser_timeout = 1000 # in the current working directory
 	if args.zmax_ppgparser_timeout is not None:
 		zmax_ppgparser_timeout = args.zmax_ppgparser_timeout
 
@@ -1753,20 +1743,32 @@ if __name__ == "__main__":
 		wearable_file_structure_annotation_datetime_csv = "wearabout_1_annotation.csv"
 
 		parse_wearable_data_write_csv(parentdirpath=path_data,filepath_csv_out=wearable_file_structure_annotation_csv,device='zmax')
-		parse_wearable_data_with_csv_annotate_datetimes(parentdirpath=path_data,filepath_csv_in=wearable_file_structure_annotation_csv,filepath_csv_out=wearable_file_structure_annotation_datetime_csv,device='zmax', reexport=reexport_on_init)
+		parse_wearable_data_with_csv_annotate_datetimes(parentdirpath=path_data,filepath_csv_in=wearable_file_structure_annotation_csv,filepath_csv_out=wearable_file_structure_annotation_datetime_csv,device='zmax')
 
 		df = pandas.read_csv(wearable_file_structure_annotation_datetime_csv)
 		#df.iloc[[0]]
 
 		print("tests finished")
 
+	elif args.function == 'reexport':
+		devices = parseDevice(devices)
+		if 'zmx' in devices:
+			exec_string = "\"zmax_edf_merge_converter.exe\"" + " " + "\"" + path_data + "\"" + " --no_overwrite --temp_file_postfix=\"_TEMP_\" --zipfile_match_string=\"_wrb_zmx_\" --zipfile_nonmatch_string=\"" + FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT + "|_raw| - empty|_TEMP_\" --write_name_postfix=\"" + FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT + "\" --exclude_empty_channels --zmax_lite --read_zip --write_zip" +  ("--zmax_ppgparser" if zmax_ppgparser else "")  + " --zmax_ppgparser_exe_path=\"" + zmax_ppgparser_exe_path +  "\" --zmax_ppgparser_timeout=" + str(zmax_ppgparser_timeout)
+			try:
+				subprocess.run(exec_string, shell=False, timeout=zmax_ppgparser_timeout)
+			except:
+				print(traceback.format_exc())
+				print('FAILED TO REEXPORT with command: ' + exec_string)
+
+
 	elif args.function == 'init':
+
 		wearable_file_structure_annotation_csv = "wearabout_0.csv"
 		wearable_file_structure_annotation_datetime_csv = "wearabout_1_annotation.csv"
 		wearable_file_structure_annotation_datetime_sync_csv = "wearabout_2_annotation_sync.csv"
 
 		parse_wearable_data_write_csv(parentdirpath=path_data,filepath_csv_out=wearable_file_structure_annotation_csv,device=devices)
-		parse_wearable_data_with_csv_annotate_datetimes(parentdirpath=path_data,filepath_csv_in=wearable_file_structure_annotation_csv,filepath_csv_out=wearable_file_structure_annotation_datetime_csv, device=devices, reexport=reexport_on_init, zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout)
+		parse_wearable_data_with_csv_annotate_datetimes(parentdirpath=path_data,filepath_csv_in=wearable_file_structure_annotation_csv,filepath_csv_out=wearable_file_structure_annotation_datetime_csv, device=devices)
 		sync_wearables(parentdirpath=path_data, filepath_csv_in=wearable_file_structure_annotation_datetime_csv, filepath_csv_out=wearable_file_structure_annotation_datetime_sync_csv, device=devices)
 
 		print("init finished")
