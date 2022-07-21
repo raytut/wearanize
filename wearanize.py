@@ -1401,7 +1401,7 @@ def raw_append_signal(raw, signal, ch_name):
 #
 # =============================================================================
 
-def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, ch_name='integrated_acc'):
+def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, integrated_ch_name='integrated_acc'):
 	# Get the data from channels
 	acc_x=raw.get_data(ch_name_acc_x)
 	acc_y=raw.get_data(ch_name_acc_y)
@@ -1415,65 +1415,80 @@ def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, c
 	# Calculate mean displacement
 	net_displacement=numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)
 
-	return raw_append_signal(raw, net_displacement[0], ch_name)
+	return raw_append_signal(raw, net_displacement[0], integrated_ch_name)
 
 
 # =============================================================================
 #
 # =============================================================================
 
-def raw_get_integrated_acc_signal(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, resample_Hz=None):
+def raw_get_integrated_acc_signal(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, integrated_ch_name="integrated_acc", resample_Hz=None):
 
 	if resample_Hz is not None:
 		raw = raw.resample(resample_Hz)
 
-	return raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z).get_data(picks=["integrated_acc"])
+	return raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z).get_data(picks=[integrated_ch_name])
 
 
 # =============================================================================
 # 
 # =============================================================================
 
-def get_signal(filepath, wearable, type = 'acc'):
+def get_signal(filepath, wearable, type='acc', resample_Hz=None):
 	path, name, extension = fileparts(filepath)
-
+	raw = None
 	if type not in ['acc', 'hr']:
 		TypeError('type not known')
+	if type == 'acc':
+		ch_name_signal = 'integrated_acc'
+	elif type == 'hr':
+		ch_name_signal = 'hr' #TODO change to a matching one
 	if wearable == 'zmx':
 		if FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT not in name:
 			raw = read_edf_to_raw_zipped(filepath, format="zmax_edf")
 		else:
 			raw = read_edf_to_raw_zipped(filepath, format="edf")
 		if type == 'acc':
-			raw_get_integrated_acc_signal(raw, ch_name_acc_x='dX', ch_name_acc_y='dY', ch_name_acc_z='dZ', resample_Hz=2)
+			raw_get_integrated_acc_signal(raw, ch_name_acc_x='dX', ch_name_acc_y='dY', ch_name_acc_z='dZ', integrated_ch_name=ch_name_signal, resample_Hz=resample_Hz)
 		elif type == 'hr':
 			pass
 	elif wearable == 'emp':
-		raw=read_e4_to_raw_list(filepath)
+		raw = read_e4_to_raw_list(filepath)
 		if type == 'acc':
-			raw=raw[4]
-			raw_get_integrated_acc_signal(raw, ch_name_acc_x="acc_x", ch_name_acc_y="acc_y", ch_name_acc_z="acc_z", resample_Hz=2)
+			raw = raw[4]
+			raw_get_integrated_acc_signal(raw, ch_name_acc_x="acc_x", ch_name_acc_y="acc_y", ch_name_acc_z="acc_z", integrated_ch_name=ch_name_signal, resample_Hz=resample_Hz)
 		elif type == 'hr':
-			raw=raw[0]
+			raw = raw[0]
 	elif wearable == 'apl':
 		if type == 'acc':
 			pass
 		elif type == 'hr':
 			TypeError('activPAL does not have heart rate signal')
+	if raw is not None:
+		raw.pick_channels([ch_name_signal])
+		if resample_Hz is not None:
+			raw = raw.resample(resample_Hz)
+	if raw is not None:
+		return raw.get_data(picks=[ch_name_signal])[0]
+	else:
+		return None
+
 
 
 # =============================================================================
 # 
 # =============================================================================
 def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all'):
-	df_csv_in = pandas.read_csv(filepath_csv_in, quoting=csv.QUOTE_NONNUMERIC)
+	df_csv_in = pandas.read_csv(filepath_csv_in, quoting=csv.QUOTE_NONNUMERIC, parse_dates = ['rec_start_datetime', 'rec_stop_datetime'])
+	df_csv_in['rec_duration_datetime'] = pandas.to_timedelta(df_csv_in['rec_duration_datetime'])
 	df_csv_in.reset_index()  # make sure indexes pair with number of rows
 
 	grouped_by_subject = df_csv_in.groupby('subject_path_id', sort=False)
 	signal_types_valid = ["zmx_all", 'ACC.csv']
 	first_rows_written = False
 	for subject_path_id, df_by_subject_path_id in grouped_by_subject:
-		df_by_subject_path_id_filtered = df_by_subject_path_id.signal.isin(signal_types_valid)
+		df_by_subject_path_id_filtered = df_by_subject_path_id.loc[df_by_subject_path_id['signal'].isin(signal_types_valid)]
+
 
 		# create empty columns to fill potentially with sync infos
 		df_by_subject_path_id_filtered['rec_start_datetime_reference'] = numpy.datetime64("NaT")
@@ -1482,17 +1497,17 @@ def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all
 		df_by_subject_path_id_filtered['sampling_rate_max_Hz_reference_adaption'] = numpy.NAN
 
 
-		['rec_start_datetime_reference', 'rec_stop_datetime_reference', 'rec_duration_datetime_reference', 'sampling_rate_max_Hz_reference_adaption']
+		#['rec_start_datetime_reference', 'rec_stop_datetime_reference', 'rec_duration_datetime_reference', 'sampling_rate_max_Hz_reference_adaption']
 		list_datetimes_paired = []
-		for row in df_by_subject_path_id_filtered:
-			list_datetimes_paired.append([row.rec_start_datetime, row.df_by_subject_path_id_filtered.rec_stop_datetime])
+		for row in df_by_subject_path_id_filtered.iterrows():
+			list_datetimes_paired.append([row[1]['rec_start_datetime'], row[1]['rec_stop_datetime']])
 
 		list_indices_paired_offsetTo2nd_overlap = sync_reach(list_datetimes_paired)
 		for i_i2_p_o_o in list_indices_paired_offsetTo2nd_overlap:
 			i = i_i2_p_o_o[0]
 			i2 = i_i2_p_o_o[1]
-			device_wearable_i = df_by_subject_path_id_filtered.device_wearable[i]
-			device_wearable_i2 = df_by_subject_path_id_filtered.device_wearable[i2]
+			device_wearable_i = df_by_subject_path_id_filtered.device_wearable.iloc[i]
+			device_wearable_i2 = df_by_subject_path_id_filtered.device_wearable.iloc[i2]
 			i_sync = None
 			i_ref = None
 
@@ -1505,20 +1520,20 @@ def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all
 				i_sync = i2
 				i_ref = i
 
-			device_wearable_sync = df_by_subject_path_id_filtered.device_wearable[i_sync]
-			device_wearable_ref = df_by_subject_path_id_filtered.device_wearable[i_ref]
+			device_wearable_sync = df_by_subject_path_id_filtered.device_wearable.iloc[i_sync]
+			device_wearable_ref = df_by_subject_path_id_filtered.device_wearable.iloc[i_ref]
 			fsample = 2
-			signal_sync = get_signal(filepath=df_by_subject_path_id_filtered.filepath[i_sync], wearable=device_wearable_sync, type='acc', resample=fsample)
-			signal_ref = get_signal(filepath=df_by_subject_path_id_filtered.filepath[i_ref], wearable=device_wearable_ref, type='acc', resample=fsample)
+			signal_sync = get_signal(filepath=parentdirpath + os.sep + df_by_subject_path_id_filtered.filepath.iloc[i_sync], wearable=device_wearable_sync, type='acc', resample_Hz=fsample)
+			signal_ref = get_signal(filepath=parentdirpath + os.sep + df_by_subject_path_id_filtered.filepath.iloc[i_ref], wearable=device_wearable_ref, type='acc', resample_Hz=fsample)
 			lag_seconds, dilation, lag_after_dilation_seconds, sample_rate_adaptation_factor = sync_signals(signal_ref, signal_sync, fsample)
 
-			rec_start_datetime_reference_i_sync = df_by_subject_path_id_filtered.rec_start_datetime[i_sync] + datetime.timedelta(seconds=lag_seconds)
-			rec_stop_datetime_reference_i_sync = df_by_subject_path_id_filtered.rec_stop_datetime[i_sync] + datetime.timedelta(seconds=lag_seconds)
-			sampling_rate_max_Hz_reference_adaption_i_sync = df_by_subject_path_id_filtered.sampling_rate_max_Hz_reference_adaption[i_ref] * sample_rate_adaptation_factor
+			rec_start_datetime_reference_i_sync = df_by_subject_path_id_filtered.rec_start_datetime.iloc[i_sync] + datetime.timedelta(seconds=lag_seconds)
+			rec_stop_datetime_reference_i_sync = df_by_subject_path_id_filtered.rec_stop_datetime.iloc[i_sync] + datetime.timedelta(seconds=lag_seconds)
+			sampling_rate_max_Hz_reference_adaption_i_sync = df_by_subject_path_id_filtered.sampling_rate_max_Hz_reference_adaption.iloc[i_ref] * sample_rate_adaptation_factor
 
-			rec_start_datetime_reference_i_ref = df_by_subject_path_id_filtered.rec_start_datetime[i_ref]
-			rec_stop_datetime_reference_i_ref = df_by_subject_path_id_filtered.rec_stop_datetime[i_ref]
-			sampling_rate_max_Hz_reference_adaption_i_ref = df_by_subject_path_id_filtered.sampling_rate_max_Hz_reference_adaption[i_ref]
+			rec_start_datetime_reference_i_ref = df_by_subject_path_id_filtered.rec_start_datetime.iloc[i_ref]
+			rec_stop_datetime_reference_i_ref = df_by_subject_path_id_filtered.rec_stop_datetime.iloc[i_ref]
+			sampling_rate_max_Hz_reference_adaption_i_ref = df_by_subject_path_id_filtered.sampling_rate_max_Hz_reference_adaption.iloc[i_ref]
 
 			df_by_subject_path_id_filtered.loc[i_sync, 'rec_start_datetime_reference'] = rec_start_datetime_reference_i_sync
 			df_by_subject_path_id_filtered.loc[i_sync, 'rec_stop_datetime_reference'] = rec_stop_datetime_reference_i_sync
@@ -1668,7 +1683,7 @@ if __name__ == "__main__":
 
 	if args.function == 'test':
 		#--tests--#
-		raw_reread = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW_merged.zip", format="edf")
+		#raw_reread = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW_merged.zip", format="edf")
 
 		dt1_start = datetime.datetime(2000, 1, 1, 0,0,0)
 		dt1_stop = dt1_start + datetime.timedelta(hours=6)
@@ -1689,13 +1704,38 @@ if __name__ == "__main__":
 		#raw_reread = read_edf_to_raw_zipped("Y:/HB/data/test_data_zmax/FW_merged.zip", format="edf")
 		#write_raw_to_edf_zipped(raw, "Y:/HB/data/test_data_zmax/FW.merged.reread.zip", format="zmax_edf") # treat as a speacial zmax read EDF for export
 
-		signal_integrated_acc = raw_append_integrate_acc(raw, 'dX', 'dX', 'dZ').get_data(picks=["integrated_acc"])
+		#signal_integrated_acc = raw_append_integrate_acc(raw, 'dX', 'dX', 'dZ', integrated_ch_name="integrated_acc").get_data(picks=["integrated_acc"])
 
-		delay_ref = 16
-		signal_ref = raw.get_data(picks=['EEG L'],start=0+delay_ref, stop=256*60*10*3+delay_ref)[0,]
-		signal_sync = raw.get_data(picks=['EEG R'],start=0, stop=256*60*10*3)[0,]
+		#delay_ref = 16
+		#signal_ref = raw.get_data(picks=['EEG L'],start=0+delay_ref, stop=256*60*10*3+delay_ref)[0,]
+		#signal_sync = raw.get_data(picks=['EEG R'],start=0, stop=256*60*10*3)[0,]
 
-		lag_seconds, dilation, lag_after_dilation_seconds, sample_rate_adaptation_factor = sync_signals(signal_ref, signal_sync, 256, chunk_size_seconds=60*10, chunk_step_seconds=60*5, lag_merge_window_seconds=60*20, max_merge_lag_difference_seconds=0.5, threshold_chunk_min_match=2, allow_anti_correlation=False)
+		#lag_seconds, dilation, lag_after_dilation_seconds, sample_rate_adaptation_factor = sync_signals(signal_ref, signal_sync, 256, chunk_size_seconds=60*10, chunk_step_seconds=60*5, lag_merge_window_seconds=60*20, max_merge_lag_difference_seconds=0.5, threshold_chunk_min_match=2, allow_anti_correlation=False)
+		#print(lag_seconds)
+
+
+		fsample = 2
+		signal_ref = get_signal(filepath='Y:\\HB\\data\\example_subjects\\data\\sub-HB0037923118974\\pre-1\\wrb\\sub-HB1EM8057291_pre-1_wrb_emp_02.zip', wearable='emp', type='acc', resample_Hz=fsample)
+		signal_sync = get_signal(filepath='Y:\\HB\\data\\example_subjects\\data\\sub-HB0037923118974\\pre-1\\wrb\\sub-HB1ZM3321037_pre-1_wrb_zmx_1.zip', wearable='zmx', type='acc', resample_Hz=fsample)
+
+		import matplotlib.pyplot as plt
+		plt.rcParams["font.family"] = 'Cambria'
+		plt.style.use('ggplot')
+		fig, axs = plt.subplots(2, sharex=True)
+		fig.suptitle('signal_sync (above) and signal_ref (below)')
+
+		delay_samples = int(57954/fsample)
+		axs[0].plot(list(range(delay_samples,delay_samples+len(signal_sync),1)),signal_sync, 'blue')
+		#axs[0].grid(b=True, which='both', axis='both', color='lightgrey', markevery=5)
+		#axs[0].set(xlabel=' ', ylabel='Heart Rate')
+		#axs[0].set_ylim(ymin=50, ymax=160)
+
+		axs[1].plot(list(range(0,len(signal_ref),1)),signal_ref, 'red')
+		#axs[1].grid(b=True, which='both', axis='both', color='lightgrey', markevery=5)
+		#axs[1].set(xlabel=' ', ylabel='IBI (ms)')
+		plt.show()
+
+		lag_seconds, dilation, lag_after_dilation_seconds, sample_rate_adaptation_factor = sync_signals(signal_ref, signal_sync, fsample, chunk_size_seconds=60*120, chunk_step_seconds=60*5, lag_merge_window_seconds=60*20, max_merge_lag_difference_seconds=60*5, threshold_chunk_min_match=1, allow_anti_correlation=False)
 		print(lag_seconds)
 
 		"""
@@ -1767,8 +1807,8 @@ if __name__ == "__main__":
 		wearable_file_structure_annotation_datetime_csv = "wearabout_1_annotation.csv"
 		wearable_file_structure_annotation_datetime_sync_csv = "wearabout_2_annotation_sync.csv"
 
-		parse_wearable_data_write_csv(parentdirpath=path_data,filepath_csv_out=wearable_file_structure_annotation_csv,device=devices)
-		parse_wearable_data_with_csv_annotate_datetimes(parentdirpath=path_data,filepath_csv_in=wearable_file_structure_annotation_csv,filepath_csv_out=wearable_file_structure_annotation_datetime_csv, device=devices)
+		#parse_wearable_data_write_csv(parentdirpath=path_data,filepath_csv_out=wearable_file_structure_annotation_csv,device=devices)
+		#parse_wearable_data_with_csv_annotate_datetimes(parentdirpath=path_data,filepath_csv_in=wearable_file_structure_annotation_csv,filepath_csv_out=wearable_file_structure_annotation_datetime_csv, device=devices)
 		sync_wearables(parentdirpath=path_data, filepath_csv_in=wearable_file_structure_annotation_datetime_csv, filepath_csv_out=wearable_file_structure_annotation_datetime_sync_csv, device=devices)
 
 		print("init finished")
