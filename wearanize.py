@@ -1014,8 +1014,8 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 			# Activpal #TODO
 			elif wearables == 'apl':
 				apl_raw = apl_window_to_raw(filepath, wearable, buffer_seconds=offset_seconds)
-				apl_df = apl_raw.to_data_frame(time_format='datime')
-				apl_df.set_index('time', drop=True)
+				channel_df = apl_raw.to_data_frame(time_format='datetime')
+				channel_df = channel_df.set_index('time', drop=True)
 				raw_df = pandas.concat([raw_df, channel_df], axis=1)
 				
 	# recreate a raw mne file with all channels 
@@ -1024,7 +1024,8 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	raw_full.set_meas_date( raw_df.index[0])
 	if resample_hz!=None:
 		raw_full=uneven_raw_resample(raw_full, resample_hz)
-	return(raw_full)
+
+	return raw_df
 
 
 def uneven_raw_resample(raw, resample_hz):
