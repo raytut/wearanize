@@ -72,7 +72,7 @@ import logging
 import traceback
 import subprocess
 
-from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped
+from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped, raw_zmax_data_quality
 
 # constants #
 FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT = "_merged"
@@ -929,18 +929,6 @@ def apl_window_to_raw(filepath, wearable, buffer_seconds=0):
 # =============================================================================
 # 
 # =============================================================================
-def raw_zmax_data_quality(raw):
-		# the last second of Battery voltage
-		quality = None
-		try:
-			quality = statistics.mean(raw.get_data(picks=['BATT'])[-256:])
-		except:
-			pass
-		return quality
-
-# =============================================================================
-# 
-# =============================================================================
 def window_selector(raw):
 	"""
 	Given a raw signal, generate datetime and duration to create search windows
@@ -1551,9 +1539,9 @@ def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all
 
 		#write out in chunks of rows
 		if first_rows_written:
-			df_by_subject_path_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=False)
+			df_by_subject_path_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=False, quoting=csv.QUOTE_NONNUMERIC)
 		else:
-			df_by_subject_path_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=True)
+			df_by_subject_path_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=True, quoting=csv.QUOTE_NONNUMERIC)
 
 
 
@@ -1608,7 +1596,7 @@ if __name__ == "__main__":
 					help='direct and full path to the ZMax PPGParser.exe in the Hypnodyne ZMax software folder')
 
 	# Optional argument
-	parser.add_argument('--zmax_ppgparser_timeout', type=float,
+	parser.add_argument('--zmax_ppgparser_timeout_seconds', type=float,
 					help='An optional timeout to run the ZMax PPGParser.exe in seconds. If empty no timeout is used')
 
 
@@ -1671,9 +1659,9 @@ if __name__ == "__main__":
 	if args.zmax_ppgparser_exe_path is not None:
 		zmax_ppgparser_exe_path = args.zmax_ppgparser_exe_path
 
-	zmax_ppgparser_timeout = 1000 # in the current working directory
-	if args.zmax_ppgparser_timeout is not None:
-		zmax_ppgparser_timeout = args.zmax_ppgparser_timeout
+	zmax_ppgparser_timeout_seconds = 1000 # in the current working directory
+	if args.zmax_ppgparser_timeout_seconds is not None:
+		zmax_ppgparser_timeout_seconds = args.zmax_ppgparser_timeout_seconds
 
 	# logging redirect #
 	if do_file_logging:
@@ -1797,9 +1785,9 @@ if __name__ == "__main__":
 	elif args.function == 'reexport':
 		devices = parseDevice(devices)
 		if 'zmx' in devices:
-			exec_string = "\"zmax_edf_merge_converter.exe\"" + " " + "\"" + path_data + "\"" + " --no_overwrite --temp_file_postfix=\"_TEMP_\" --zipfile_match_string=\"_wrb_zmx_\" --zipfile_nonmatch_string=\"" + FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT + "|_raw| - empty|_TEMP_\" --write_name_postfix=\"" + FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT + "\" --exclude_empty_channels --zmax_lite --read_zip --write_zip" +  ("--zmax_ppgparser" if zmax_ppgparser else "")  + " --zmax_ppgparser_exe_path=\"" + zmax_ppgparser_exe_path +  "\" --zmax_ppgparser_timeout=" + str(zmax_ppgparser_timeout)
+			exec_string = "\"zmax_edf_merge_converter.exe\"" + " " + "\"" + path_data + "\"" + " --no_overwrite --temp_file_postfix=\"_TEMP_\" --zipfile_match_string=\"_wrb_zmx_\" --zipfile_nonmatch_string=\"" + FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT + "|_raw| - empty|_TEMP_\" --write_name_postfix=\"" + FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT + "\" --exclude_empty_channels --zmax_lite --read_zip --write_zip" +  ("--zmax_ppgparser" if zmax_ppgparser else "")  + " --zmax_ppgparser_exe_path=\"" + zmax_ppgparser_exe_path +  "\" --zmax_ppgparser_timeout_seconds=" + str(zmax_ppgparser_timeout_seconds)
 			try:
-				subprocess.run(exec_string, shell=False, timeout=zmax_ppgparser_timeout)
+				subprocess.run(exec_string, shell=False, timeout=zmax_ppgparser_timeout_seconds)
 			except:
 				print(traceback.format_exc())
 				print('FAILED TO REEXPORT with command: ' + exec_string)

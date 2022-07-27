@@ -55,6 +55,8 @@ import traceback
 import subprocess
 import logging
 import statistics
+import hashlib
+import csv
 
 # classes #
 
@@ -69,6 +71,39 @@ class StreamToLogger(object):
 			self.logger.log(self.log_level, line.rstrip())
 
 # functions #
+
+
+# =============================================================================
+# hashlib.md5 is slower than hashlib.blake2b
+# =============================================================================
+def get_file_hash(filepath, chunk_size_bytes=None, start_chunk=None, stop_chunk=None, hash_function=hashlib.md5):
+	with open(filepath, "rb") as f:
+		if chunk_size_bytes is None:
+			return hash_function(f.read()).hexdigest()
+		else:
+			file_hash = hash_function()
+			chunk = f.read(chunk_size_bytes)
+			iChunk = 1
+			while chunk:
+				if start_chunk is None:
+					if stop_chunk is None:
+						file_hash.update(chunk)
+					else:
+						if stop_chunk <= iChunk:
+							file_hash.update(chunk)
+				else:
+					if start_chunk >= iChunk:
+						if stop_chunk <= iChunk:
+							file_hash.update(chunk)
+				chunk = f.read(chunk_size_bytes)
+				iChunk += 1
+			return file_hash.hexdigest()
+
+# =============================================================================
+# hashlib.md5 is slower than hashlib.blake2b
+# =============================================================================
+def get_raw_data_hash(raw, hash_function=hashlib.md5):
+		return hash_function(raw._data.tobytes()).hexdigest()
 
 # =============================================================================
 #
@@ -135,7 +170,7 @@ def raw_prolong_constant(raw, to_n_samples, contant=0, prepend=False):
 # =============================================================================
 #
 # =============================================================================
-def read_edf_to_raw(filepath, preload=True, format="zmax_edf", zmax_ppgparser=False, zmax_ppgparser_exe_path=None, zmax_ppgparser_timeout=None, drop_zmax=['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI', 'PARSED_NASAL R', 'PARSED_NASAL L', 'PARSED_OXY_R_AC', 'PARSED_HR_r', 'PARSED_HR_r_strength']):
+def read_edf_to_raw(filepath, preload=True, format="zmax_edf", zmax_ppgparser=False, zmax_ppgparser_exe_path=None, zmax_ppgparser_timeout_seconds=None, drop_zmax=['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI', 'PARSED_NASAL R', 'PARSED_NASAL L', 'PARSED_OXY_R_AC', 'PARSED_HR_r', 'PARSED_HR_r_strength']):
 	path, name, extension = fileparts(filepath)
 	if (extension).lower() != ".edf":
 		warnings.warn("The filepath " + filepath + " does not seem to be an EDF file.")
@@ -163,7 +198,7 @@ def read_edf_to_raw(filepath, preload=True, format="zmax_edf", zmax_ppgparser=Fa
 				addfilepath = path + os.sep + name + '.edf'
 				exec_string = exec_string + " " + "\"" + addfilepath + "\""
 			try:
-				subprocess.run(exec_string, shell=False, timeout=zmax_ppgparser_timeout)
+				subprocess.run(exec_string, shell=False, timeout=zmax_ppgparser_timeout_seconds)
 			except:
 				print(traceback.format_exc())
 				print('FAILED to reparse' + filepath)
@@ -327,18 +362,18 @@ def write_raw_to_edf(raw, filepath, format="zmax_edf"):
 # =============================================================================
 #
 # =============================================================================
-def read_edf_to_raw_zipped(filepath, format="zmax_edf", zmax_ppgparser=False, zmax_ppgparser_exe_path=None, zmax_ppgparser_timeout=None, drop_zmax=['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI', 'PARSED_NASAL R', 'PARSED_NASAL L', 'PARSED_OXY_R_AC', 'PARSED_HR_r', 'PARSED_HR_r_strength']):
+def read_edf_to_raw_zipped(filepath, format="zmax_edf", zmax_ppgparser=False, zmax_ppgparser_exe_path=None, zmax_ppgparser_timeout_seconds=None, drop_zmax=['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI', 'PARSED_NASAL R', 'PARSED_NASAL L', 'PARSED_OXY_R_AC', 'PARSED_HR_r', 'PARSED_HR_r_strength']):
 	temp_dir = safe_zip_dir_extract(filepath)
 	raw = None
 	if format == "zmax_edf":
-		raw = read_edf_to_raw(temp_dir.name + os.sep + "EEG L.edf", format=format, zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout, drop_zmax=drop_zmax)
+		raw = read_edf_to_raw(temp_dir.name + os.sep + "EEG L.edf", format=format, zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout_seconds=zmax_ppgparser_timeout_seconds, drop_zmax=drop_zmax)
 	elif format == "edf":
 		fileendings = ('*.edf', '*.EDF')
 		filepath_list_edfs = []
 		for fileending in fileendings:
 			filepath_list_edfs.extend(glob.glob(temp_dir.name + os.sep + fileending,recursive=True))
 		if filepath_list_edfs:
-			raw = read_edf_to_raw(filepath_list_edfs[0], format=format, zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout)
+			raw = read_edf_to_raw(filepath_list_edfs[0], format=format, zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout_seconds=zmax_ppgparser_timeout_seconds)
 	safe_zip_dir_cleanup(temp_dir)
 	return raw
 
@@ -356,6 +391,17 @@ def write_raw_to_edf_zipped(raw, zippath, edf_filename=None, format="zmax_edf", 
 	safe_zip_dir_cleanup(temp_dir)
 	return zippath
 
+# =============================================================================
+#
+# =============================================================================
+def raw_zmax_data_quality(raw):
+		# the last second of Battery voltage
+		quality = None
+		try:
+			quality = statistics.mean(raw.get_data(picks=['BATT'])[-256:])
+		except:
+			pass
+		return quality
 
 def nullable_string(val):
 	if not val:
@@ -493,16 +539,36 @@ if __name__ == "__main__":
 					help='file name post fix for the written files or directories that are not completely written yet. Default is \"_TEMP_\"')
 
 	# Optional argument
-	parser.add_argument('--zmax_ppgparser_timeout', type=float,
+	parser.add_argument('--zmax_ppgparser_timeout_seconds', type=float,
 					help='An optional timeout to run the ZMax PPGParser.exe in seconds. If empty no timeout is used')
+
+	# Optional argument
+	parser.add_argument('--resample_Hz', type=float,
+					help='An optional resample frequency for the written EDF data.')
 
 	# Switch
 	parser.add_argument('--zmax_lite', action='store_true',
 					help='Switch to indicate if the device is a ZMax lite version and not all channels have to be included')
 
 	# Switch
+	parser.add_argument('--no_write', action='store_true',
+					help='Switch to indicate if files should be written out or not.')
+
+	# Switch
 	parser.add_argument('--no_overwrite', action='store_true',
 					help='Switch to indicate if files should be overwritten if existent')
+
+	# Switch
+	parser.add_argument('--no_summary_csv', action='store_true',
+					help='Switch to indicate if a summary file should not be written')
+
+	# Switch
+	parser.add_argument('--no_file_hashing', action='store_true',
+					help='Switch to indicate if the file hash (i.e. MD5 sum) should be calculated (to compare if data is the same for same hash)')
+
+	# Switch
+	parser.add_argument('--no_signal_hashing', action='store_true',
+					help='Switch to indicate if the signal data hash should be calculated (to compare if data is the same for same hash)')
 
 	# Switch
 	parser.add_argument('--exclude_empty_channels', action='store_true',
@@ -511,10 +577,6 @@ if __name__ == "__main__":
 	# Switch
 	parser.add_argument('--write_zip', action='store_true',
 					help='Switch to indicate if the output edfs should be zipped in one .zip file')
-
-
-
-
 
 	args = parser.parse_args()
 
@@ -554,17 +616,40 @@ if __name__ == "__main__":
 	if args.zmax_ppgparser is not None:
 		zmax_ppgparser = args.zmax_ppgparser
 
+	no_write = False
+	if args.no_write is not None:
+		no_write = args.no_write
+
 	no_overwrite = False
 	if args.no_overwrite is not None:
 		no_overwrite = args.no_overwrite
+
+	no_summary_csv = False
+	if args.no_summary_csv is not None:
+		no_summary_csv = args.no_summary_csv
+
+	no_file_hashing = False
+	if args.no_file_hashing is not None:
+		no_file_hashing = args.no_file_hashing
+
+	no_signal_hashing = False
+	if args.no_signal_hashing is not None:
+		no_signal_hashing = args.no_signal_hashing
+
+	file_hashing = not no_file_hashing
+	signal_hashing = not no_signal_hashing
 
 	zmax_ppgparser_exe_path = 'PPGParser.exe' # in the current working directory
 	if args.zmax_ppgparser_exe_path is not None:
 		zmax_ppgparser_exe_path = args.zmax_ppgparser_exe_path
 
-	zmax_ppgparser_timeout = None # in the current working directory
-	if args.zmax_ppgparser_timeout is not None:
-		zmax_ppgparser_timeout = args.zmax_ppgparser_timeout
+	zmax_ppgparser_timeout_seconds = None # in seconds
+	if args.zmax_ppgparser_timeout_seconds is not None:
+		zmax_ppgparser_timeout_seconds = args.zmax_ppgparser_timeout_seconds
+
+	resample_Hz = None
+	if args.resample_Hz is not None:
+		resample_Hz = args.resample_Hz
 
 	write_name_postfix = "_merged"
 	if args.write_name_postfix is not None:
@@ -578,7 +663,14 @@ if __name__ == "__main__":
 	#	print('expecting path to a parent folders with zmax edfs converted from HDrecorder as the only argument')
 	#	exit(0)
 
+	if not no_summary_csv:
+		filepath_csv_summary_file =  'zmax_edf_merge_converter_summary_' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S%f") + '.csv'
+		csv_summary_file =  open(filepath_csv_summary_file, 'w', newline='')
+		writer = csv.writer(csv_summary_file, delimiter=',', quoting=csv.QUOTE_NONNUMERIC, escapechar='\\')
+		header_new = ['file_number', 'conversion_status', 'zmax_file_path_original', 'hash_zmax_file_path_original_md5', 'converted_file_path', 'hash_converted_file_path_md5', 'rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'rec_duration_seconds', 'rec_duration_samples', 'rec_battery_at_end_voltage', 'hash_signals_before_conversion', 'hash_signals_after_conversion']
+		writer.writerow(header_new)
 	#parentdirpath = sys.argv[1]
+	nFileProcessed = 0
 	for parentdirpath in parent_dir_paths:
 		read_zip_temp = read_zip
 
@@ -618,11 +710,24 @@ if __name__ == "__main__":
 
 		number_of_conversions = len(filepath_list)
 		for i, filepath in enumerate(filepath_list):
+			nFileProcessed += 1
 			print("PROCESSING %d of %d: '%s' " % (i+1, number_of_conversions, filepath))
 			path, name, extension = fileparts(filepath)
 			parentfoldername = os.path.basename(path)
 			pathup, nametmp, extensiontmp = fileparts(path)
 			drop_channels = []
+			md5_signal_hash_before_conversion = 'not_computed'
+			md5_file_original_hash = 'not_computed'
+			md5_signal_hash_after_conversion = 'not_computed'
+			md5_file_converted_file_hash = 'not_computed'
+			rec_start_datetime = 'not_retrieved'
+			rec_stop_datetime = 'not_retrieved'
+			rec_duration_datetime = 'not_retrieved'
+			rec_battery_at_end = 'not_retrieved'
+			conversion_status = 'not_converted'
+			export_filepath_final = ''
+			rec_duration_seconds = None
+			rec_n_samples = None
 			if isliteversion:
 				drop_channels = ['BODY TEMP', 'LIGHT', 'NASAL L', 'NASAL R', 'NOISE', 'OXY_DARK_AC', 'OXY_DARK_DC', 'OXY_R_AC', 'OXY_R_DC', 'RSSI', 'PARSED_NASAL R', 'PARSED_NASAL L', 'PARSED_OXY_R_AC', 'PARSED_HR_r', 'PARSED_HR_r_strength']
 			try:
@@ -657,10 +762,31 @@ if __name__ == "__main__":
 
 				#reading
 				if read_zip_temp:
-					raw = read_edf_to_raw_zipped(filepath, format="zmax_edf", zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout, drop_zmax=drop_channels)
+					raw = read_edf_to_raw_zipped(filepath, format="zmax_edf", zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout_seconds=zmax_ppgparser_timeout_seconds, drop_zmax=drop_channels)
 				else:
-					raw = read_edf_to_raw(filepath, format="zmax_edf", zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout, drop_zmax = drop_channels)
+					raw = read_edf_to_raw(filepath, format="zmax_edf", zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout_seconds=zmax_ppgparser_timeout_seconds, drop_zmax = drop_channels)
 				print("READ %d of %d: '%s' " % (i+1, number_of_conversions, filepath))
+				conversion_status = 'read_in'
+
+				# data hashing pre
+				if signal_hashing:
+					print("HASHING SIGNAL OF FILE %d of %d: '%s' " % (i+1, number_of_conversions, filepath))
+					md5_signal_hash_before_conversion = get_raw_data_hash(raw, hash_function=hashlib.md5)
+					print("MD5 SIGNAL HASH: " + md5_signal_hash_before_conversion)
+					#raw_short_ori = raw.copy()
+					#raw_short_ori.crop(tmin=0, tmax=60*4)
+					#md5_signal_hash_before_conversion_short_ori = get_raw_data_hash(raw_short_ori, hash_function=hashlib.md5)
+					#raw_short_crop = raw.copy()
+					#raw_short_crop.crop(tmin=2.671875, tmax=60*4)
+					#md5_signal_hash_before_conversion_short_crop = get_raw_data_hash(raw_short_crop, hash_function=hashlib.md5)
+
+
+				rec_start_datetime = raw.info['meas_date']
+				rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+				rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+				rec_duration_seconds = rec_duration_datetime.total_seconds()
+				rec_n_samples = raw.n_times
+				rec_battery_at_end = raw_zmax_data_quality(raw)
 
 				if exclude_empty_channels:
 					flat_channel_names = []
@@ -671,6 +797,24 @@ if __name__ == "__main__":
 							flat_channel_names.append(ch_name)
 					raw.drop_channels(flat_channel_names)
 
+				if resample_Hz is not None:
+					raw = raw.resample(resample_Hz)
+
+				sampling_rate_final_Hz = raw.info['sfreq']
+
+				# file hashing original
+				if file_hashing:
+					print("HASHING FILE %d of %d: '%s' " % (i+1, number_of_conversions, filepath))
+					md5_file_hash = get_file_hash(filepath, chunk_size_bytes=65536, hash_function=hashlib.md5)
+					print("MD5 FILE HASH: " + md5_file_original_hash)
+
+				# data hashing post
+				if signal_hashing:
+					print("HASHING SIGNAL (after conversion) OF FILE %d of %d: '%s' " % (i+1, number_of_conversions, filepath))
+					md5_signal_hash_after_conversion = get_raw_data_hash(raw, hash_function=hashlib.md5)
+					print("MD5 SIGNAL HASH: " + md5_signal_hash_after_conversion)
+
+				conversion_status = 'read_in_processed'
 				#writing
 				print("Attempting to write %d of %d: '%s' " % (i+1, number_of_conversions, export_filepath_final))
 				# check again just before writing
@@ -678,36 +822,53 @@ if __name__ == "__main__":
 					if os.path.exists(export_filepath_final):
 						print('skipping file: %s' % export_filepath_final)
 						continue
-				if write_zip:
-					export_filepath_final_to_rename_2 = write_raw_to_edf_zipped(raw, export_filepath_final_to_rename, edf_filename=export_filepath_final, format="zmax_edf") # treat as a speacial zmax read EDF for export
-				else:
-					export_filepath_final_to_rename_2 = write_raw_to_edf(raw, export_filepath_final_to_rename, format="zmax_edf")  # treat as a speacial zmax read EDF for export
-
+				if not no_write:
+					if write_zip:
+						export_filepath_final_to_rename_2 = write_raw_to_edf_zipped(raw, export_filepath_final_to_rename, edf_filename=export_filepath_final, format="zmax_edf") # treat as a speacial zmax read EDF for export
+					else:
+						export_filepath_final_to_rename_2 = write_raw_to_edf(raw, export_filepath_final_to_rename, format="zmax_edf")  # treat as a speacial zmax read EDF for export
+					conversion_status = 'read_in_processed_written_temp'
 				try:
 					# check again just before writing
 					if no_overwrite:
-						os.rename(export_filepath_final_to_rename_2, export_filepath_final)
+						os.rename(export_filepath_final_to_rename, export_filepath_final)
 					else:
 						if os.path.exists(export_filepath_final):
 							try:
 								os.remove(export_filepath_final)
 							except FileNotFoundError:
 								pass
-						shutil.move(export_filepath_final_to_rename_2, export_filepath_final)
-					print("WROTE %d of %d: '%s' " % (i+1, number_of_conversions, export_filepath_final))
+						shutil.move(export_filepath_final_to_rename, export_filepath_final)
+					print("WROTE successfully %d of %d: '%s' " % (i+1, number_of_conversions, export_filepath_final))
+					conversion_status = 'read_in_processed_written_converted'
 				except:
 					print('FAILED TO RENAME FINAL FILE %s FROM TEMPORARY FILE: %s' % (export_filepath_final, export_filepath_final_to_rename_2))
 					print(traceback.format_exc())
 					#finally remove the temporary file if exists
 					try:
 						try:
-							os.remove(export_filepath_final_to_rename_2)
+							os.remove(export_filepath_final_to_rename)
 						except FileNotFoundError:
 							pass
 					except:
-						print('FAILED TO DELETE THE LEFT TEMPORARY FILE: %s' % export_filepath_final_to_rename_2)
+						print('FAILED TO DELETE THE LEFT TEMPORARY FILE: %s' % export_filepath_final_to_rename)
 						print(traceback.format_exc())
 
+				# file hashing original
+				if file_hashing:
+					print("HASHING FILE %d of %d: '%s' " % (i+1, number_of_conversions, filepath))
+					md5_file_hash = get_file_hash(filepath, chunk_size_bytes=65536, hash_function=hashlib.md5)
+					print("MD5 FILE HASH: " + md5_file_converted_file_hash)
 			except Exception as e:
 				print(traceback.format_exc())
 				print("FAILED %d of %d: '%s' " % (i+1, number_of_conversions, filepath))
+
+			# write to summary
+			if not no_summary_csv:
+				row_new = [nFileProcessed, conversion_status, filepath, md5_file_original_hash, export_filepath_final, md5_file_converted_file_hash, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, rec_duration_seconds, rec_n_samples, rec_battery_at_end, md5_signal_hash_before_conversion, md5_signal_hash_after_conversion]
+				writer.writerow(row_new)
+				csv_summary_file.flush()
+
+	# close summary csv file again
+	if not no_summary_csv:
+		csv_summary_file.close()
