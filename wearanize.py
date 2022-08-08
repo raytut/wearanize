@@ -961,6 +961,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	elif wearable == 'emp':
 		raw = read_e4_to_raw_list(filepath)
 	elif wearable == 'apl': #TODO: Add apl files
+		warnings.warn("ACTIVPAL Files too large for efficient syncing")
 		pass
 	 
 	# convert to dateframe and subset time window    
@@ -1007,7 +1008,6 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 							pass
 				raw_df = pandas.concat([raw_df,channel_df], axis=1)
 				
-			# Activpal #TODO
 			elif wearables == 'apl':
 				apl_raw = apl_window_to_raw(filepath, wearable, buffer_seconds=offset_seconds)
 				channel_df = apl_raw.to_data_frame(time_format='datetime')
@@ -1166,7 +1166,7 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 						for signal_types in ['IBI.csv','BVP.csv', 'HR.csv','EDA.csv','TEMP.csv', 'ACC.csv']:
 							raw = pandas.read_csv(emp_zip.open(signal_types))
 							if signal_types == "IBI.csv":
-								signal = signal_types
+								signal = signal_types.removesuffix('.csv')
 								rec_start_datetime = datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
 								rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw.iloc[-1,0]))
 								rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
@@ -1175,11 +1175,13 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 								row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 								writer.writerow(row_new)
 							else:
-								signal = signal_types
+								signal = signal_types.removesuffix('.csv')
 								rec_start_datetime=datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
 								rec_stop_datetime = rec_start_datetime + datetime.timedelta(((((len(raw.index)-1)*(1/raw.iloc[0,0]))/60)/60)/24)
 								rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
 								sampling_rate_max_Hz=str(raw.iloc[0,0])
+								if signal=='EDA':
+									rec_quality=100-(100*(raw[0] < 0.02).sum()/(len(raw.index)-1))
 								row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 								writer.writerow(row_new)
 					except:
