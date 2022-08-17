@@ -880,7 +880,7 @@ def apl_to_raw(filepath):
 	# Set time
 	tz=pytz.timezone('Europe/Amsterdam')
 	timestamp=meta[5]
-	timetamp_tz=tz.localize(timestamp)
+	timestamp=tz.localize(timestamp)
 	raw.set_meas_date(timestamp.timestamp())
 	return(raw)
 
@@ -1040,30 +1040,41 @@ def uneven_raw_resample(raw, resample_hz, interpolation_method='pad'):
 # =============================================================================
 # 
 # =============================================================================
-def raw_detect_heart_rate_PPG(raw, ppg_channel, enhance_peaks=True, resampling_hz=2): #TODO: Develop peak algorithm for zmax
+def raw_detect_heart_rate_PPG(raw, ppg_channel, enhance_peaks=True, device='emp'):
 	"""
-	Detect the PPG artifacts in heart rate
-	Detect the heartrate and outlier heart rates, 
-	Output the heartrate signal with inter RR intervals and timepoints and artifact periods annotated.
-	Optionally add to the raw data as a new channel with nans where there is not heart rate detected or artifactious
+	Parameters
+	---------------
+	raw: mne.raw
+		mne raw object containing blood volume pulse channel
+	channel_name: str
+		name of channel containing bvp data
+	enhance_peaks: bool
+		Determines whether to include peak enhancements, default False (recommended for empatica)
+	windowsize: int
+		Window size for use with peak detection algorithm. Recommended 1 for Empatica, 2 for ZMAX
 	"""
+
 	# first take care of the nans 
-	raw_series = pandas.Series(raw.get_data(ppg_channel[0]))
+	raw_series = pandas.Series(raw.get_data(ppg_channel)[0])
 	raw_series = raw_series.fillna(raw_series.mean())
 	raw_series = raw_series.array
 	
 	# peak enhancement
-	if enhance_peaks==True:
-		enhanced = hp.enhance_peaks(raw_series, iterations=3)
+	if enhance_peaks == True:
+		raw_series = hp.enhance_peaks(raw_series, iterations=3)
+
+	# set filtering parameters
+	if device == 'emp':
+		fp = 0.6
+		fs = 8
 	else:
-		enhanced = raw_series
+		fp = 0.75
+		fs = 8
+		
 	# filtering based on lian et al 2018
-	sos = scipy.signal.cheby2(4, 30, Wn=[0.1, 8], btype='bp', output='sos', fs=raw.info['sfreq'])
-	filtered = scipy.signal.sosfilt(sos, enhanced)
-	# additional bandpas filter
-	filtered = hp.filter_signal(enhanced, cutoff=[0.75, 8], sample_rate=raw.info['sfreq'], order=4,  filtertype='bandpass')
+	filtered = hp.filter_signal(raw_series, cutoff=[fp, fs], sample_rate=raw.info['sfreq'], order=4,  filtertype='bandpass')
 	# run peak detection
-	hr, measures = hp.process(filtered, int(raw.info['sfreq']), windowsize=1)
+	hr, measures = hp.process(filtered, int(raw.info['sfreq']), windowsize=2)
 	return hr, measures
 	
 	
