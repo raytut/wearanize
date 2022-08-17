@@ -1411,21 +1411,42 @@ def raw_append_signal(raw, signal, ch_name):
 #
 # =============================================================================
 
-def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, integrated_ch_name='integrated_acc'):
+def raw_append_integrate_acc(raw, ch_name_acc_x, ch_name_acc_y, ch_name_acc_z, integrated_ch_name='integrated_acc', window=None):
+	"""
+	    Parameters
+	----------
+	raw: mne.raw 
+		File containing 3-axis accelerometer data
+	ch_name_acc*: str
+		names of channels in mne file containing the x, y, and z directions from accelerometer.
+	integrated_ch_name: str
+		name to give new channel containing integrated displacement factor
+	window: int
+		Moving average window in seconds
+	Returns
+	-------
+	mne.raw: a new mne raw file with an added channel for the integrated acc
+	""" 
 	# Get the data from channels
-	acc_x=raw.get_data(ch_name_acc_x)
-	acc_y=raw.get_data(ch_name_acc_y)
-	acc_z=raw.get_data(ch_name_acc_z)
+	acc_x = raw.get_data(ch_name_acc_x)
+	acc_y = raw.get_data(ch_name_acc_y)
+	acc_z = raw.get_data(ch_name_acc_z)
 	
 	# Caclulate differences between consequetive samples
-	acc_x_dis=numpy.array(abs(numpy.diff(acc_x, prepend=acc_x[0][0])))
-	acc_y_dis=numpy.array(abs(numpy.diff(acc_y, prepend=acc_y[0][0])))
-	acc_z_dis=numpy.array(abs(numpy.diff(acc_z, prepend=acc_z[0][0])))
+	acc_x_dis = numpy.array(abs(numpy.diff(acc_x, prepend = acc_x[0][0])))
+	acc_y_dis = numpy.array(abs(numpy.diff(acc_y, prepend = acc_y[0][0])))
+	acc_z_dis = numpy.array(abs(numpy.diff(acc_z, prepend = acc_z[0][0])))
 	
 	# Calculate mean displacement
-	net_displacement=numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)
-
-	return raw_append_signal(raw, net_displacement[0], integrated_ch_name)
+	net_displacement = numpy.sqrt(acc_x_dis**2+acc_y_dis**2+acc_z_dis**2)[0]
+	
+	# apply moving average
+	if window != None: 
+		window =int( window*raw.info['sfreq'])
+		net_displacement = pandas.Series(net_displacement).rolling(window).mean() 
+		net_displacement = net_displacement.to_numpy()
+		
+	return raw_append_signal(raw, net_displacement, integrated_ch_name)
 
 
 # =============================================================================
