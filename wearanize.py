@@ -43,7 +43,7 @@ import os
 import glob
 import csv
 import datetime
-import heartpy
+import heartpy as hp
 import EDFlib
 import pyedflib
 import shutil
@@ -1040,16 +1040,32 @@ def uneven_raw_resample(raw, resample_hz, interpolation_method='pad'):
 # =============================================================================
 # 
 # =============================================================================
-def raw_detect_heart_rate_PPG(raw, ppg_channel, resampling_hz=2): #TODO: Rayyan
+def raw_detect_heart_rate_PPG(raw, ppg_channel, enhance_peaks=True, resampling_hz=2): #TODO: Develop peak algorithm for zmax
 	"""
 	Detect the PPG artifacts in heart rate
 	Detect the heartrate and outlier heart rates, 
 	Output the heartrate signal with inter RR intervals and timepoints and artifact periods annotated.
 	Optionally add to the raw data as a new channel with nans where there is not heart rate detected or artifactious
 	"""
-	sfreq=raw.info['sfreq']
-	raw.resample(resampling_hz)
-	hr, measures=heartpy.process(raw.get_data(ppg_channel)[0], sample_rate=resampling_hz)
+	# first take care of the nans 
+	raw_series = pandas.Series(raw.get_data(ppg_channel[0]))
+	raw_series = raw_series.fillna(raw_series.mean())
+	raw_series = raw_series.array
+	
+	# peak enhancement
+	if enhance_peaks==True:
+		enhanced = hp.enhance_peaks(raw_series, iterations=3)
+	else:
+		enhanced = raw_series
+	# filtering based on lian et al 2018
+	sos = scipy.signal.cheby2(4, 30, Wn=[0.1, 8], btype='bp', output='sos', fs=raw.info['sfreq'])
+	filtered = scipy.signal.sosfilt(sos, enhanced)
+	# additional bandpas filter
+	filtered = hp.filter_signal(enhanced, cutoff=[0.75, 8], sample_rate=raw.info['sfreq'], order=4,  filtertype='bandpass')
+	# run peak detection
+	hr, measures = hp.process(filtered, int(raw.info['sfreq']), windowsize=1)
+	return hr, measures
+	
 	
 # =============================================================================
 # 
