@@ -304,37 +304,42 @@ def read_e4_to_raw_list(filepath):
 			if signal_type != "ACC.csv":
 				# Read signal
 				raw = pandas.read_csv(emp_zip.open(signal_type), sep="\t", index_col=0 )
+				
 				# create channel info for mne.info file
 				channel = signal_type.split(".")
 				channel = channel[0].lower()
 				sfreq = sampling_frequencies[i]
 				mne_info = mne.create_info(ch_names=["timestamp_ux", channel], sfreq=sfreq, ch_types="misc")
+				
 				# create timestamp arra
-				raw.time = pandas.to_datetime(raw.time)
-				timestamp = raw.iloc[0:1, 1][1]
-				dt_object = datetime.datetime.fromtimestamp(int(timestamp.asm8))
-
-				time_stamp = time_stamp[1].to_datetime64()
-				tz=pytz.timezone('Europe/Amsterdam')
-				timestamp=tz.localize(timestamp.timestamp())
-				# change time tp
+				raw.time = pandas.to_datetime(raw.time, format='%Y-%m-%d %H:%M:%S.%f', exact=True, utc=True)
+				timestamp = raw.iloc[0:1, 1]
+				raw['time'] = pandas.to_numeric(raw['time'])
+				
+				# create mne object. time not relevant here
 				mne_obj = mne.io.RawArray([ raw.iloc[1:,1], raw.iloc[1:,0]], mne_info, first_samp=0)
-				mne_obj.set_meas_date(timestamp)
 				mne_raw_list[i] = mne_obj
 			else:
+				
 				# Read signal
 				raw = pandas.read_csv(emp_zip.open(signal_type), sep="\t", index_col=0 )
 				pandas.to_datetime(raw.time)
+				
 				# create channel info for mne.info file
 				channel = signal_type.split(".")
 				channel = channel[0].lower()
 				sfreq = sampling_frequencies[i]
 				mne_info = mne.create_info(ch_names=["timestamp_ux", "acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
-				# Create MNE Raw object and add to a list of objects
+				
+				# create timestamp arra
+				raw.time = pandas.to_datetime(raw.time, format='%Y-%m-%d %H:%M:%S.%f', exact=True, utc=True)
 				timestamp = raw.iloc[0:1, 3]
+				raw['time'] = pandas.to_numeric(raw['time'])
+				
+				# Create MNE Raw object and add to a list of objects
 				mne_obj = mne.io.RawArray([ raw.iloc[1:,3], raw.iloc[1:,0], raw.iloc[1:,1], raw.iloc[1:,2]], mne_info, first_samp=0)
-				mne_obj.set_meas_date(timestamp[1])
 				mne_raw_list[i] = mne_obj
+				
 	return mne_raw_list
 
 
