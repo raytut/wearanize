@@ -57,7 +57,7 @@ import statsmodels
 import pytz# Activpal
 import errno
 from collections import namedtuple
-
+import pyphysio as ph
 import sys
 if sys.version_info >= (3, 6):
 	import zipfile
@@ -874,10 +874,120 @@ def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all
 		else:
 			df_by_subject_path_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=True, quoting=csv.QUOTE_NONNUMERIC)
 
+# =============================================================================
+#  Feature extraction
+# =============================================================================
+def chunk_signal(signal, sfreq, window):
+	# window size in samples
+	n_chunks = round(len(signal) / (window * 60 * sfreq))
+
+	# look into chunks
+	signal_list = list()
+	j = 0
+	for i in range(0, n_chunks):
+		signal_chunk = signal[j:int(j + int(window * 60 * sfreq))]
+		j = j + int(window * 60 * sfreq)
+		# if its the last window and we rounded down
+		if j < len(signal) and i == n_chunks - 1:
+			signal_chunk = signal[j:]
+		signal_list.append(signal_chunk)
+	return signal_list
 
 
+def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], window=10, relative_to_app=False,
+						  app_file=None, app_datetime=None, app_window='before'):
+	"""
+	Parameters
+	-----------
+	raw: mne.raw
+		MNE formatted data
+	channel_name: str
+		Name of channel containing EDA/GSR data
+	features: arr
+		Array with requested EDA features to extract
+	window: int
+		Window to chunk signal into, in minutes.
+	relative_to_app: bool
+		If feature extraction is to be carried out in windows around app data
+	app_window: str
+		Window to select around app, can be 'before' 'after' or 'around'
+	"""
 
+	# convert to data frame with time index
+	try:
+		eda = raw.to_data_frame(index='time', time_format='datetime')
+	except:
+		eda = raw.to_data_frame(index='time')
+	# get sampling frequency
+	sfreq = raw.info['sfreq']
 
+	# set time in case its present in file
+	if 'timestamp_ux' in eda:
+		eda.timestamp_ux = pandas.to_datetime(eda['timestamp_ux'], exact=True, utc=True)
+		eda = eda.set_index(eda.timestamp_ux, drop=True)
+
+	# decide on the window
+	if not relative_to_app:
+
+		# generate chunks and lists to append to
+		eda_chunks_list = chunk_signal(eda[channel_name], sfreq, window)
+		time_chunks_list = chunk_signal(eda.index, sfreq, window)
+		eda_features = list()
+		eda_features_labs = list()
+		eda_features_times = list()
+
+		for i, eda_chunk in enumerate(eda_chunks_list):
+
+			# convert to pyphysio evenly signal
+			eda_signal = ph.EvenlySignal(eda_chunk, sampling_freq=sfreq, signal_type='EDA')
+			chunk_start = time_chunks_list[i][0]
+
+			# resample and denoise
+			eda_signal = eda_signal.resample(fout=8, kind='cubic')
+			eda_despiked = ph.Filters.RemoveSpikes()(eda_signal)
+			eda_denoised = ph.DenoiseEDA(0.02)(eda_despiked)
+
+			# estimate drivers and determine tonic and phasic components
+			eda_driver = ph.DriverEstim()(eda_denoised)
+			phasic, tonic, _ = ph.PhasicEstim(delta=0.02)(eda_driver)
+
+			# get features
+			if 'tonic' in features:
+				# get features
+				feat_ton_mean = ph.TimeDomain.Mean(delta=0.02)(tonic)
+				feat_ton_sd = ph.TimeDomain.StDev(delta=0.02)(tonic)
+				feat_ton_range = ph.TimeDomain.Range(delta=0.02)(tonic)
+				# append to lists
+				eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range'])
+				eda_features_times.extend([chunk_start] * 3)
+				eda_features.extend([feat_ton_mean, feat_ton_sd, feat_ton_range])
+			if 'phasic' in features:
+				# Phasic components
+				feat_pha_mean = ph.TimeDomain.Mean(delta=0.02)(phasic)
+				feat_pha_sd = ph.TimeDomain.StDev(delta=0.02)(phasic)
+				feat_pha_range = ph.TimeDomain.Range(delta=0.02)(phasic)
+				# append to list
+				eda_features_labs.extend(['eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range'])
+				eda_features_times.extend([chunk_start] * 3)
+				eda_features.extend([feat_pha_mean, feat_pha_sd, feat_pha_range])
+				# Phasic Peaks
+				feat_pha_mag = ph.PeaksDescription.PeaksMean(delta=0.02, win_pre=1, win_post=8)(phasic)
+				feat_pha_dur = ph.PeaksDescription.DurationMean(delta=0.02, win_pre=1, win_post=8)(phasic)
+				feat_pha_num = ph.PeaksDescription.PeaksNum(delta=0.02)(phasic)
+				feat_pha_auc = ph.TimeDomain.AUC(delta=0.02)(phasic)
+				# append to list
+				eda_features_labs.extend(
+					['eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc'])
+				eda_features_times.extend([chunk_start] * 4)
+				eda_features.extend([feat_pha_mag, feat_pha_dur, feat_pha_num, feat_pha_auc])
+
+		# convert to df for output
+		eda_df = {'time': eda_features_times, 'feature': eda_features_labs, '': eda_features}
+		eda_df = pandas.DataFrame(eda_df)
+		eda_df = eda_df.pivot(index='time', columns='feature')
+
+	# TODO: Add Relative to app
+	return eda_df
 """
 	comment
 	TODO:
@@ -886,7 +996,6 @@ def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all
 	# check the dates if this is a standard date and if the order needs to be adapted.
 	# PPG to HR signal
 	# cross correlation, on 10 min snippets with linear extrapolation.
-	# read activPAL data: https://github.com/R-Broadley/python-uos-activpal
 """
 if __name__ == "__main__":
 
