@@ -75,6 +75,7 @@ import subprocess
 from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped, raw_zmax_data_quality
 from e4_converter import read_e4_to_raw_list, read_e4_to_raw, e4_concatenate, e4_concatente_par
 import apl_converter as apl
+from apl_converter import apl_to_raw, apl_window_to_raw
 
 # constants #
 FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT = "_merged"
