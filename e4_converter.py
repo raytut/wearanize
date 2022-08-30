@@ -1,4 +1,4 @@
-#-*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Copyright 2022, Rayyan Tutunji
 """
@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 
 # define file parts based on path
 def fileparts(filepath):
+
 	filepath = os.path.normpath(filepath)
 	path_filename = os.path.split(filepath)
 	filename = path_filename[1]
@@ -28,7 +29,6 @@ def fileparts(filepath):
 
 # convert e4 data to mne.raw format
 def read_e4_to_raw_list(filepath):
-
 
 	filepath = os.path.join(filepath)
 	filepath = os.path.normpath(filepath)
@@ -311,7 +311,7 @@ def e4_concatenate(project_folder, sub_nr, resampling=None):
 							zipdir = ZipFile(k)
 							df = pandas.read_csv(zipdir.open(data_type))
 
-							##Get start time+sampling frequency
+							# Get start time+sampling frequency
 							start_time = list(df)
 							start_time = start_time[0]
 							samp_freq = df.iloc[0, 0]
@@ -394,7 +394,7 @@ def e4_plot(emp_file):
 	df_acc = raw[4].to_data_frame()
 
 	# Plots
-	Title = ('E4 Plot for ')
+	Title = 'E4 Plot for ' + emp_file
 	# plt.rcParams["font.family"] = 'Cambria'
 	plt.style.use('ggplot')
 	# Plot
@@ -402,7 +402,7 @@ def e4_plot(emp_file):
 	fig.suptitle(Title)
 
 	# HR
-	axs[0].plot(pandas.to_datetime(df_bvp.timestamp_ux, exact=True), df_bvp.bvp, 'purple' )
+	axs[0].plot(pandas.to_datetime(df_bvp.timestamp_ux, exact=True), df_bvp.bvp, 'purple')
 	axs[0].grid(b=True, which='both', axis='both', color='lightgrey', markevery=5)
 	axs[0].set(xlabel=' ', ylabel='Blood Volume Pulse')
 	axs[0].set_ylim(ymin=50, ymax=160)
@@ -416,7 +416,7 @@ def e4_plot(emp_file):
 	axs[2].set(xlabel=' ', ylabel='SC ($\mu$S)')
 	axs[2].set_ylim(ymin=-5, ymax=10)
 	# Temp
-	axs[3].plot(pandas.to_datetime(df_temp.timestamp_ux, exact=True), df_temp.temp,'tomato')
+	axs[3].plot(pandas.to_datetime(df_temp.timestamp_ux, exact=True), df_temp.temp, 'tomato')
 	axs[3].grid(b=True, which='both', axis='both', color='lightgrey', markevery=5)
 	axs[3].set(xlabel=' ', ylabel='Temp ($^\circ$C)')
 	axs[3].set_ylim(ymin=15, ymax=45)
@@ -427,6 +427,5 @@ def e4_plot(emp_file):
 	axs[4].grid(b=True, which='both', axis='both', color='lightgrey', markevery=5)
 	axs[4].set(xlabel='Time', ylabel='ACC')
 	axs[4].set_ylim(ymin=-10)
-
 	# Plot
 	plt.show()
