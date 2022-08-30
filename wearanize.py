@@ -54,7 +54,7 @@ from sklearn.linear_model import LinearRegression
 import argparse
 import pathlib
 import statsmodels
-import pytz# Activpal
+import pytz
 import errno
 from collections import namedtuple
 import pyphysio as ph
@@ -876,7 +876,7 @@ def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all
 			df_by_subject_path_id_filtered.to_csv(filepath_csv_out, mode='a', index=False, header=True, quoting=csv.QUOTE_NONNUMERIC)
 
 # =============================================================================
-#  Feature extraction
+#  Chuncking
 # =============================================================================
 def chunk_signal(signal, sfreq, window):
 	# window size in samples
@@ -894,55 +894,116 @@ def chunk_signal(signal, sfreq, window):
 		signal_list.append(signal_chunk)
 	return signal_list
 
-
-def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], window=10, relative_to_app=False,
-						  app_file=None, app_datetime=None, app_window='before'):
+def chunk_signal_at_app(signal, channel_name, app_data, app_starttime, app_endtime, app_window='before', window=10):
 	"""
 	Parameters
-	-----------
-	raw: mne.raw
-		MNE formatted data
-	channel_name: str
-		Name of channel containing EDA/GSR data
-	features: arr
-		Array with requested EDA features to extract
-	window: int
-		Window to chunk signal into, in minutes.
-	relative_to_app: bool
-		If feature extraction is to be carried out in windows around app data
+	----------
+	signal: pandas.DataFrame()
+		A raw signal converted to a pandas dataframe with a datetime index
+	app_data: pandas.DataFrame() or str
+		Pandas data frame or path to EMA data for subject
+	app_starttime: str
+		Name of column containing beep start time
+	app_endtime: str
+		Name of column containing beep end time
 	app_window: str
-		Window to select around app, can be 'before' 'after' or 'around'
+		Window around EMA to search. Can be 'before', 'after', or 'around'
+	window: int
+		Window length
+	Returns
+	-------
+	signal_chuncks: list
+		list containing signal chuncks as pandas data frane
+	time_chunks: list
+		list containing EMA start time used for chunking
 	"""
+	# if path instead of dataframe supplied
+	if type(app_data) == str:
+		app_data = app_to_long(app_data)
 
+	# reformat dates
+	app_data[app_starttime] = pandas.to_datetime(app_data[app_starttime], exact=True)
+	app_data[app_endtime] = pandas.to_datetime(app_data[app_endtime], exact=True)
+
+	# loop over time stamps and create signal chunks
+	signal_chunks = list()
+	time_chunks = list()
+	for i in range(len(app_data[app_starttime])):
+
+		# decide on window
+		start_time = app_data[app_starttime][i]
+		end_time = app_data[app_endtime][i]
+		if app_window == 'before':
+			t1 = start_time - datetime.timedelta(minutes=window)
+			t2 = start_time
+		elif app_window == 'after':
+			t1 = datetime.timedelta(minutes=window)
+			t2 = end_time + datetime.timedelta(minutes=window)
+		elif app_window == 'around':
+			t1 = start_time - datetime.timedelta(minutes=window)
+			t2 = end_time + datetime.timedelta(minutes=window)
+
+		# convert to datetimes and set to UTC tz
+		t1 = t1.to_pydatetime()
+		t1 = t1.astimezone(pytz.timezone('Europe/Amsterdam'))
+		t1 = t1.astimezone(pytz.utc)
+		t2 = t2.to_pydatetime()
+		t2 = t2.astimezone(pytz.timezone('Europe/Amsterdam'))
+		t2 = t2.astimezone(pytz.utc)
+
+		# subset temp dataframe from window and add to a list
+		signal_temp = signal[(signal['time'] > t1) & (signal['time'] < t2)]
+		signal_temp = signal_temp[channel_name]
+		signal_chunks.extend([signal_temp])
+		time_chunks.extend([start_time])
+
+	return signal_chunks, time_chunks
+
+# =============================================================================
+#  Feature Extraction
+# =============================================================================
+
+def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], window=10, app_data=None, app_starttime=None,
+						  app_endtime=None, app_window='before'):
 	# convert to data frame with time index
-	try:
-		eda = raw.to_data_frame(index='time', time_format='datetime')
-	except:
-		eda = raw.to_data_frame(index='time')
+	eda = raw.to_data_frame(time_format='datetime')
+
 	# get sampling frequency
 	sfreq = raw.info['sfreq']
+	sfreq_ms = str(int(1000 * (1 / sfreq)))
 
-	# set time in case its present in file
+	# set time in case its present in file, aslo round to nearest ms
 	if 'timestamp_ux' in eda:
-		eda.timestamp_ux = pandas.to_datetime(eda['timestamp_ux'], exact=True, utc=True)
-		eda = eda.set_index(eda.timestamp_ux, drop=True)
+		eda.time = pandas.to_datetime(eda['timestamp_ux'], exact=True, utc=True)
+		eda.time = eda.time.round('ms')
+		eda = eda.set_index(eda.time, drop=True)
 
-	# decide on the window
-	if not relative_to_app:
+	# resample to expand missing windows
+	eda = eda.resample(sfreq_ms + "ms").ffill(limit=int(sfreq))
 
-		# generate chunks and lists to append to
+	# create chunks depending on window
+	if app_data == None:
 		eda_chunks_list = chunk_signal(eda[channel_name], sfreq, window)
 		time_chunks_list = chunk_signal(eda.index, sfreq, window)
-		eda_features = list()
-		eda_features_labs = list()
-		eda_features_times = list()
+	else:
+		eda_chunks_list, time_chunks_list = chunk_signal_at_app(signal=eda, channel_name=channel_name, app_data=app_data, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window, window=window)
 
-		for i, eda_chunk in enumerate(eda_chunks_list):
+	# initialize lists for features
+	eda_features = list()
+	eda_features_labs = list()
+	eda_features_times = list()
 
-			# convert to pyphysio evenly signal
-			eda_signal = ph.EvenlySignal(eda_chunk, sampling_freq=sfreq, signal_type='EDA')
+	for i, eda_chunk in enumerate(eda_chunks_list):
+		# TODO: Add Quality assessments
+		# log sample start time
+		if app_data == None:
 			chunk_start = time_chunks_list[i][0]
+		else:
+			chunk_start = time_chunks_list[i]
 
+		# convert to pyphysio evenly signal
+		eda_signal = ph.EvenlySignal(eda_chunk, sampling_freq=sfreq, signal_type='EDA')
+		if len(eda_signal) > 0:
 			# resample and denoise
 			eda_signal = eda_signal.resample(fout=8, kind='cubic')
 			eda_despiked = ph.Filters.RemoveSpikes()(eda_signal)
@@ -950,45 +1011,114 @@ def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], windo
 
 			# estimate drivers and determine tonic and phasic components
 			eda_driver = ph.DriverEstim()(eda_denoised)
-			phasic, tonic, _ = ph.PhasicEstim(delta=0.02)(eda_driver)
+			phasic, tonic, _ = ph.PhasicEstim(delta=0.03)(eda_driver)
 
 			# get features
 			if 'tonic' in features:
 				# get features
-				feat_ton_mean = ph.TimeDomain.Mean(delta=0.02)(tonic)
-				feat_ton_sd = ph.TimeDomain.StDev(delta=0.02)(tonic)
-				feat_ton_range = ph.TimeDomain.Range(delta=0.02)(tonic)
+				feat_ton_mean = ph.TimeDomain.Mean(delta=0.03)(tonic)
+				feat_ton_sd = ph.TimeDomain.StDev(delta=0.03)(tonic)
+				feat_ton_range = ph.TimeDomain.Range(delta=0.03)(tonic)
 				# append to lists
 				eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range'])
 				eda_features_times.extend([chunk_start] * 3)
 				eda_features.extend([feat_ton_mean, feat_ton_sd, feat_ton_range])
 			if 'phasic' in features:
 				# Phasic components
-				feat_pha_mean = ph.TimeDomain.Mean(delta=0.02)(phasic)
-				feat_pha_sd = ph.TimeDomain.StDev(delta=0.02)(phasic)
-				feat_pha_range = ph.TimeDomain.Range(delta=0.02)(phasic)
+				feat_pha_mean = ph.TimeDomain.Mean(delta=0.03)(phasic)
+				feat_pha_sd = ph.TimeDomain.StDev(delta=0.03)(phasic)
+				feat_pha_range = ph.TimeDomain.Range(delta=0.03)(phasic)
 				# append to list
 				eda_features_labs.extend(['eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range'])
 				eda_features_times.extend([chunk_start] * 3)
 				eda_features.extend([feat_pha_mean, feat_pha_sd, feat_pha_range])
 				# Phasic Peaks
-				feat_pha_mag = ph.PeaksDescription.PeaksMean(delta=0.02, win_pre=1, win_post=8)(phasic)
-				feat_pha_dur = ph.PeaksDescription.DurationMean(delta=0.02, win_pre=1, win_post=8)(phasic)
-				feat_pha_num = ph.PeaksDescription.PeaksNum(delta=0.02)(phasic)
-				feat_pha_auc = ph.TimeDomain.AUC(delta=0.02)(phasic)
+				feat_pha_mag = ph.PeaksDescription.PeaksMean(delta=0.03, win_pre=3, win_post=8)(phasic)
+				feat_pha_dur = ph.PeaksDescription.DurationMean(delta=0.03, win_pre=3, win_post=8)(phasic)
+				feat_pha_num = ph.PeaksDescription.PeaksNum(delta=0.03)(phasic)
+				feat_pha_auc = ph.TimeDomain.AUC(delta=0.03)(phasic)
 				# append to list
-				eda_features_labs.extend(
-					['eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc'])
+				eda_features_labs.extend(['eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc'])
 				eda_features_times.extend([chunk_start] * 4)
 				eda_features.extend([feat_pha_mag, feat_pha_dur, feat_pha_num, feat_pha_auc])
+		else: # log that file was empty
+			eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range', 'eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range', 'eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc'])
+			eda_features_times.extend([chunk_start] * 10)
+			eda_features.extend(['NaN'] * 10)
 
 		# convert to df for output
 		eda_df = {'time': eda_features_times, 'feature': eda_features_labs, '': eda_features}
 		eda_df = pandas.DataFrame(eda_df)
 		eda_df = eda_df.pivot(index='time', columns='feature')
 
-	# TODO: Add Relative to app
 	return eda_df
+
+def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_starttime=None,
+						  app_endtime=None, app_window='before'):
+	# convert to data frame with time index
+	try:
+		hr = raw.to_data_frame(time_format='datetime')
+	except:
+		hr = raw.to_data_frame()
+
+	# get sampling frequency
+	sfreq = raw.info['sfreq']
+	sfreq_ms = str(int(1000 * (1 / sfreq)))
+
+	# set time in case its present in file, aslo round to nearest ms
+	if 'timestamp_ux' in hr:
+		hr.time = pandas.to_datetime(hr['timestamp_ux'], exact=True, utc=True)
+		hr.time = hr.time.round('ms')
+		hr = hr.set_index(hr.time, drop=True)
+
+	# resample to expand missing windows
+	hr = hr.resample(sfreq_ms + "ms").ffill(limit=int(sfreq))
+
+	# create chunks depending on window
+	if app_data == None:
+		hr_chunks_list = chunk_signal(hr[channel_name], sfreq, window)
+		time_chunks_list = chunk_signal(hr.index, sfreq, window)
+	else:
+		hr_chunks_list, time_chunks_list = chunk_signal_at_app(signal=hr, channel_name=channel_name, app_data=app_data, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window, window=window)
+
+	# initialize lists for features
+	hr_features = list()
+	hr_features_labs = list()
+	hr_features_times = list()
+	for i, hr_chunk in enumerate(hr_chunks_list):
+		# TODO: Add Quality assessments
+		# log sample start time
+		if app_data == None:
+			chunk_start = time_chunks_list[i][0]
+		else:
+			chunk_start = time_chunks_list[i]
+		try:
+			# turn into hrv signal class
+			signal = rhv.Signal(hr_chunk.to_numpy(), sample_rate=int(sfreq))
+			# The high-pass filter is implemented with a cutoff of 0.5Hz by default, which can be changed with highpass_cutoff.
+			preprocessed = rhv.preprocess(signal, highpass_cutoff=0.06, lowpass_cutoff=8, sg_settings=(4, 200), resample_rate=32)
+			# Preprocess: may interpolate data, check the docstring on `rapidhrv.preprocess`
+			analyzed = rhv.analyze(preprocessed, outlier_detection_settings="moderate", amplitude_threshold=30, window_overlap=9)  # Analyze signal
+			analyzed.dropna(inplace=True)
+			# trim outliers and get values
+			hr_trunc = scipy.stats.trim_mean(analyzed[['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF']], 0.05)
+			hr_trunc  = numpy.append(hr_trunc, analyzed.BPM.max())
+			hr_trunc  = numpy.append(hr_trunc, analyzed.BPM.min())
+			hr_trunc  = hr_trunc.tolist()
+			# add features to list
+			hr_features.extend(hr_trunc)
+			hr_features_labs.extend(['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF', 'Max', 'Min'])
+			hr_features_times.extend([chunk_start]*9)
+		except:
+			hr_features_labs.extend(['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF', 'Max', 'Min'])
+			hr_features_times.extend([chunk_start]*9)
+			hr_features.extend(['NaN'] * 9)
+
+	hr_df = {'time': hr_features_times, 'feature': hr_features_labs, '': hr_features}
+	hr_df = pandas.DataFrame(hr_df)
+	hr_df = hr_df.pivot(index='time', columns='feature')
+
+	return hr_df
 """
 	comment
 	TODO:
