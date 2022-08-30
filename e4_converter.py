@@ -153,6 +153,20 @@ def read_e4_to_raw(filepath, resample_Hz=64, interpolate_method='ffill'):
 
 # temporally concatenate e4 data and save as separate zip file in same directory
 def e4_concatenate(project_folder, sub_nr, resampling=None):
+	"""
+	Parameters
+	----------
+	project_folder: str
+		Path where all subject data is stored
+	sub_nr: str
+		subject to concatenate data for
+	resampling: int
+		Resample to specified frequency
+	Returns
+		A zip folder in same directory as sub_nr data
+	-------
+
+	"""
 	# Set sub nr as string
 	sub = str(sub_nr)
 	# Make array with the sessions for loop
