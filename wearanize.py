@@ -1011,7 +1011,7 @@ def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], delta
 			eda_filtered = ph.KalmanFilter(R=3, ratio=2)(eda_signal)
 			# estimate drivers and determine tonic and phasic components (Foll 2021)
 			eda_driver = ph.DriverEstim()(eda_filtered)
-			phasic, tonic, _ = ph.PhasicEstim(0.01, win_pre=3, win_post=8(eda_driver)
+			phasic, tonic, _ = ph.PhasicEstim(0.01, win_pre=3, win_post=8)(eda_driver)
 
 			# get features
 			if 'tonic' in features:
