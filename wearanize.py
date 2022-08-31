@@ -964,7 +964,7 @@ def chunk_signal_at_app(signal, channel_name, app_data, app_starttime, app_endti
 #  Feature Extraction
 # =============================================================================
 
-def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], window=10, app_data=None, app_starttime=None,
+def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], delta=0.02, window=10, app_data=None, app_starttime=None,
 						  app_endtime=None, app_window='before'):
 	# convert to data frame with time index
 	eda = raw.to_data_frame(time_format='datetime')
@@ -1005,39 +1005,38 @@ def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], windo
 		# convert to pyphysio evenly signal
 		eda_signal = ph.EvenlySignal(eda_chunk, sampling_freq=sfreq, signal_type='EDA')
 		if (len(eda_signal) > ((window*60*sfreq)/2)) & (numpy.isnan(numpy.mean(eda_signal)) == False) & (numpy.mean(eda_signal) >= 0.02):
-			# resample and denoise
-			eda_signal = eda_signal.resample(fout=8, kind='cubic')
-			eda_despiked = ph.Filters.RemoveSpikes()(eda_signal)
-			eda_denoised = ph.DenoiseEDA(0.02)(eda_despiked)
-
-			# estimate drivers and determine tonic and phasic components
-			eda_driver = ph.DriverEstim()(eda_denoised)
-			phasic, tonic, _ = ph.PhasicEstim(delta=0.02)(eda_driver)
+			
+			# resample and filter according to Tronstad (2015) and Foll(2021)
+			eda_signal = eda_signal.resample(fout=8, kind='linear')
+			eda_filtered = ph.KalmanFilter(R=3, ratio=2)(eda_signal)
+			# estimate drivers and determine tonic and phasic components (Foll 2021)
+			eda_driver = ph.DriverEstim()(eda_filtered)
+			phasic, tonic, _ = ph.PhasicEstim(0.01, win_pre=3, win_post=8(eda_driver)
 
 			# get features
 			if 'tonic' in features:
 				# get features
-				feat_ton_mean = ph.TimeDomain.Mean(delta=0.02)(tonic)
-				feat_ton_sd = ph.TimeDomain.StDev(delta=0.02)(tonic)
-				feat_ton_range = ph.TimeDomain.Range(delta=0.02)(tonic)
+				feat_ton_mean = ph.TimeDomain.Mean(delta)(tonic)
+				feat_ton_sd = ph.TimeDomain.StDev(delta)(tonic)
+				feat_ton_range = ph.TimeDomain.Range(delta)(tonic)
 				# append to lists
 				eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range'])
 				eda_features_times.extend([chunk_start] * 3)
 				eda_features.extend([feat_ton_mean, feat_ton_sd, feat_ton_range])
 			if 'phasic' in features:
 				# Phasic components
-				feat_pha_mean = ph.TimeDomain.Mean(delta=0.02)(phasic)
-				feat_pha_sd = ph.TimeDomain.StDev(delta=0.02)(phasic)
-				feat_pha_range = ph.TimeDomain.Range(delta=0.02)(phasic)
+				feat_pha_mean = ph.TimeDomain.Mean(delta)(phasic)
+				feat_pha_sd = ph.TimeDomain.StDev(delta)(phasic)
+				feat_pha_range = ph.TimeDomain.Range(delta)(phasic)
 				# append to list
 				eda_features_labs.extend(['eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range'])
 				eda_features_times.extend([chunk_start] * 3)
 				eda_features.extend([feat_pha_mean, feat_pha_sd, feat_pha_range])
 				# Phasic Peaks
-				feat_pha_mag = ph.PeaksDescription.PeaksMean(delta=0.02, win_pre=3, win_post=8)(phasic)
-				feat_pha_dur = ph.PeaksDescription.DurationMean(delta=0.02, win_pre=3, win_post=8)(phasic)
-				feat_pha_num = ph.PeaksDescription.PeaksNum(delta=0.02)(phasic)
-				feat_pha_auc = ph.TimeDomain.AUC(delta=0.02)(phasic)
+				feat_pha_mag = ph.PeaksDescription.PeaksMean(delta, win_pre=3, win_post=8)(phasic)
+				feat_pha_dur = ph.PeaksDescription.DurationMean(delta, win_pre=3, win_post=8)(phasic)
+				feat_pha_num = ph.PeaksDescription.PeaksNum(delta)(phasic)
+				feat_pha_auc = ph.TimeDomain.AUC(delta)(phasic)
 				# append to list
 				eda_features_labs.extend(['eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc'])
 				eda_features_times.extend([chunk_start] * 4)
@@ -1109,10 +1108,7 @@ def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_startt
 		try:
 			# turn into hrv signal class
 			signal = rhv.Signal(hr_chunk.to_numpy(), sample_rate=int(sfreq))
-			# The high-pass filter is i
-# variables for testing
-raw_list = wearanize.read_e4_to_raw_list(glob.glob('/project/3013081.01/temp/temp-LO/data/sub-HB0063396839740/pre-1/wrb/*emp_full.zip')[0] )
-window = 10mplemented with a cutoff of 0.5Hz by default, which can be changed with highpass_cutoff.
+			# The high-pass filter is implemented with a cutoff of 0.5Hz by default, which can be changed with highpass_cutoff.
 			preprocessed = rhv.preprocess(signal, highpass_cutoff=0.06, lowpass_cutoff=8, sg_settings=(4, 200), resample_rate=32)
 			# Preprocess: may interpolate data, check the docstring on `rapidhrv.preprocess`
 			analyzed = rhv.analyze(preprocessed, outlier_detection_settings="moderate", amplitude_threshold=30, window_overlap=9)  # Analyze signal
