@@ -43,7 +43,6 @@ import os
 import glob
 import csv
 import datetime
-import heartpy as hp
 import EDFlib
 import pyedflib
 import shutil
@@ -58,6 +57,8 @@ import pytz
 import errno
 from collections import namedtuple
 import pyphysio as ph
+import heartpy as hp
+import rapidhrv as rhv
 import sys
 if sys.version_info >= (3, 6):
 	import zipfile
@@ -994,7 +995,7 @@ def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], windo
 	eda_features_times = list()
 
 	for i, eda_chunk in enumerate(eda_chunks_list):
-		# TODO: Add Quality assessments
+
 		# log sample start time
 		if app_data == None:
 			chunk_start = time_chunks_list[i][0]
@@ -1003,7 +1004,7 @@ def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], windo
 
 		# convert to pyphysio evenly signal
 		eda_signal = ph.EvenlySignal(eda_chunk, sampling_freq=sfreq, signal_type='EDA')
-		if len(eda_signal) > 0:
+		if (len(eda_signal) > ((window*60*sfreq)/2)) & (numpy.isnan(numpy.mean(eda_signal)) == False) & (numpy.mean(eda_signal) >= 0.02):
 			# resample and denoise
 			eda_signal = eda_signal.resample(fout=8, kind='cubic')
 			eda_despiked = ph.Filters.RemoveSpikes()(eda_signal)
@@ -1011,55 +1012,68 @@ def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], windo
 
 			# estimate drivers and determine tonic and phasic components
 			eda_driver = ph.DriverEstim()(eda_denoised)
-			phasic, tonic, _ = ph.PhasicEstim(delta=0.03)(eda_driver)
+			phasic, tonic, _ = ph.PhasicEstim(delta=0.02)(eda_driver)
 
 			# get features
 			if 'tonic' in features:
 				# get features
-				feat_ton_mean = ph.TimeDomain.Mean(delta=0.03)(tonic)
-				feat_ton_sd = ph.TimeDomain.StDev(delta=0.03)(tonic)
-				feat_ton_range = ph.TimeDomain.Range(delta=0.03)(tonic)
+				feat_ton_mean = ph.TimeDomain.Mean(delta=0.02)(tonic)
+				feat_ton_sd = ph.TimeDomain.StDev(delta=0.02)(tonic)
+				feat_ton_range = ph.TimeDomain.Range(delta=0.02)(tonic)
 				# append to lists
 				eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range'])
 				eda_features_times.extend([chunk_start] * 3)
 				eda_features.extend([feat_ton_mean, feat_ton_sd, feat_ton_range])
 			if 'phasic' in features:
 				# Phasic components
-				feat_pha_mean = ph.TimeDomain.Mean(delta=0.03)(phasic)
-				feat_pha_sd = ph.TimeDomain.StDev(delta=0.03)(phasic)
-				feat_pha_range = ph.TimeDomain.Range(delta=0.03)(phasic)
+				feat_pha_mean = ph.TimeDomain.Mean(delta=0.02)(phasic)
+				feat_pha_sd = ph.TimeDomain.StDev(delta=0.02)(phasic)
+				feat_pha_range = ph.TimeDomain.Range(delta=0.02)(phasic)
 				# append to list
 				eda_features_labs.extend(['eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range'])
 				eda_features_times.extend([chunk_start] * 3)
 				eda_features.extend([feat_pha_mean, feat_pha_sd, feat_pha_range])
 				# Phasic Peaks
-				feat_pha_mag = ph.PeaksDescription.PeaksMean(delta=0.03, win_pre=3, win_post=8)(phasic)
-				feat_pha_dur = ph.PeaksDescription.DurationMean(delta=0.03, win_pre=3, win_post=8)(phasic)
-				feat_pha_num = ph.PeaksDescription.PeaksNum(delta=0.03)(phasic)
-				feat_pha_auc = ph.TimeDomain.AUC(delta=0.03)(phasic)
+				feat_pha_mag = ph.PeaksDescription.PeaksMean(delta=0.02, win_pre=3, win_post=8)(phasic)
+				feat_pha_dur = ph.PeaksDescription.DurationMean(delta=0.02, win_pre=3, win_post=8)(phasic)
+				feat_pha_num = ph.PeaksDescription.PeaksNum(delta=0.02)(phasic)
+				feat_pha_auc = ph.TimeDomain.AUC(delta=0.02)(phasic)
 				# append to list
 				eda_features_labs.extend(['eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc'])
 				eda_features_times.extend([chunk_start] * 4)
 				eda_features.extend([feat_pha_mag, feat_pha_dur, feat_pha_num, feat_pha_auc])
+
+			# Calculate quality metrics
+			## slope
+			feat_eda_slope = eda_chunk.resample('1S').ffill()
+			feat_eda_slope = feat_eda_slope.reset_index()
+			y = numpy.array(feat_eda_slope['eda'].fillna(method='bfill').values, dtype=float)
+			x = numpy.array(pandas.to_datetime(feat_eda_slope['time'].dropna()).index.values, dtype=float)
+			feat_eda_slope = scipy.stats.linregress(x, y)[0]
+			## Range (min - max)
+			feat_eda_max = ph.TimeDomain.Max()(eda_signal)
+			feat_eda_min = ph.TimeDomain.Min()(eda_signal)
+			# append to list
+			eda_features_labs.extend(['eda_qa_slope', 'eda_qa_min', 'eda_qa_max'])
+			eda_features_times.extend([chunk_start] * 3)
+			eda_features.extend([feat_eda_slope, feat_eda_min, feat_eda_max])
+
 		else: # log that file was empty
-			eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range', 'eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range', 'eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc'])
-			eda_features_times.extend([chunk_start] * 10)
-			eda_features.extend(['NaN'] * 10)
+			eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range', 'eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range', 'eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc', 'eda_qa_slope', 'eda_qa_min', 'eda_qa_max'])
+			eda_features_times.extend([chunk_start] * 13)
+			eda_features.extend(['NaN'] * 13)
 
 		# convert to df for output
-		eda_df = {'time': eda_features_times, 'feature': eda_features_labs, '': eda_features}
+		eda_df = {'time': eda_features_times, 'feature': eda_features_labs, 'eda': eda_features}
 		eda_df = pandas.DataFrame(eda_df)
-		eda_df = eda_df.pivot(index='time', columns='feature')
+		eda_df = eda_df.pivot(index='time', columns='feature', values='eda')
 
 	return eda_df
 
 def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_starttime=None,
 						  app_endtime=None, app_window='before'):
 	# convert to data frame with time index
-	try:
-		hr = raw.to_data_frame(time_format='datetime')
-	except:
-		hr = raw.to_data_frame()
+	hr = raw.to_data_frame(time_format='datetime')
 
 	# get sampling frequency
 	sfreq = raw.info['sfreq']
@@ -1095,7 +1109,10 @@ def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_startt
 		try:
 			# turn into hrv signal class
 			signal = rhv.Signal(hr_chunk.to_numpy(), sample_rate=int(sfreq))
-			# The high-pass filter is implemented with a cutoff of 0.5Hz by default, which can be changed with highpass_cutoff.
+			# The high-pass filter is i
+# variables for testing
+raw_list = wearanize.read_e4_to_raw_list(glob.glob('/project/3013081.01/temp/temp-LO/data/sub-HB0063396839740/pre-1/wrb/*emp_full.zip')[0] )
+window = 10mplemented with a cutoff of 0.5Hz by default, which can be changed with highpass_cutoff.
 			preprocessed = rhv.preprocess(signal, highpass_cutoff=0.06, lowpass_cutoff=8, sg_settings=(4, 200), resample_rate=32)
 			# Preprocess: may interpolate data, check the docstring on `rapidhrv.preprocess`
 			analyzed = rhv.analyze(preprocessed, outlier_detection_settings="moderate", amplitude_threshold=30, window_overlap=9)  # Analyze signal
@@ -1114,7 +1131,7 @@ def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_startt
 			hr_features_times.extend([chunk_start]*9)
 			hr_features.extend(['NaN'] * 9)
 
-	hr_df = {'time': hr_features_times, 'feature': hr_features_labs, '': hr_features}
+	hr_df = {'time': hr_features_times, 'feature': hr_features_labs, 'hr': hr_features}
 	hr_df = pandas.DataFrame(hr_df)
 	hr_df = hr_df.pivot(index='time', columns='feature')
 
