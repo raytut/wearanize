@@ -55,7 +55,6 @@ import pathlib
 import statsmodels
 import pytz
 import errno
-from collections import namedtuple
 import pyphysio as ph
 import heartpy as hp
 import rapidhrv as rhv
@@ -72,6 +71,7 @@ from joblib import Parallel, delayed
 import logging
 import traceback
 import subprocess
+import xlrd 
 
 from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped, raw_zmax_data_quality
 from e4_converter import read_e4_to_raw_list, read_e4_to_raw, e4_concatenate, e4_concatente_par
@@ -964,7 +964,7 @@ def chunk_signal_at_app(signal, channel_name, app_data, app_starttime, app_endti
 #  Feature Extraction
 # =============================================================================
 
-def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], delta=0.02, window=10, app_data=None, app_starttime=None,
+def features_eda_from_raw(raw, channel_name,  window=10, features=['tonic', 'phasic'], delta=0.02, app_data=None, app_starttime=None,
 						  app_endtime=None, app_window='before'):
 	# convert to data frame with time index
 	eda = raw.to_data_frame(time_format='datetime')
@@ -1016,18 +1016,18 @@ def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], delta
 			# get features
 			if 'tonic' in features:
 				# get features
-				feat_ton_mean = ph.TimeDomain.Mean(delta)(tonic)
-				feat_ton_sd = ph.TimeDomain.StDev(delta)(tonic)
-				feat_ton_range = ph.TimeDomain.Range(delta)(tonic)
+				feat_ton_mean = ph.TimeDomain.Mean()(tonic)
+				feat_ton_sd = ph.TimeDomain.StDev()(tonic)
+				feat_ton_range = ph.TimeDomain.Range()(tonic)
 				# append to lists
 				eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range'])
 				eda_features_times.extend([chunk_start] * 3)
 				eda_features.extend([feat_ton_mean, feat_ton_sd, feat_ton_range])
 			if 'phasic' in features:
 				# Phasic components
-				feat_pha_mean = ph.TimeDomain.Mean(delta)(phasic)
-				feat_pha_sd = ph.TimeDomain.StDev(delta)(phasic)
-				feat_pha_range = ph.TimeDomain.Range(delta)(phasic)
+				feat_pha_mean = ph.TimeDomain.Mean()(phasic)
+				feat_pha_sd = ph.TimeDomain.StDev()(phasic)
+				feat_pha_range = ph.TimeDomain.Range()(phasic)
 				# append to list
 				eda_features_labs.extend(['eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range'])
 				eda_features_times.extend([chunk_start] * 3)
@@ -1036,7 +1036,7 @@ def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], delta
 				feat_pha_mag = ph.PeaksDescription.PeaksMean(delta, win_pre=3, win_post=8)(phasic)
 				feat_pha_dur = ph.PeaksDescription.DurationMean(delta, win_pre=3, win_post=8)(phasic)
 				feat_pha_num = ph.PeaksDescription.PeaksNum(delta)(phasic)
-				feat_pha_auc = ph.TimeDomain.AUC(delta)(phasic)
+				feat_pha_auc = ph.TimeDomain.AUC()(phasic)
 				# append to list
 				eda_features_labs.extend(['eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc'])
 				eda_features_times.extend([chunk_start] * 4)
@@ -1053,14 +1053,17 @@ def features_eda_from_raw(raw, channel_name, features=['tonic', 'phasic'], delta
 			feat_eda_max = ph.TimeDomain.Max()(eda_signal)
 			feat_eda_min = ph.TimeDomain.Min()(eda_signal)
 			# append to list
-			eda_features_labs.extend(['eda_qa_slope', 'eda_qa_min', 'eda_qa_max'])
-			eda_features_times.extend([chunk_start] * 3)
-			eda_features.extend([feat_eda_slope, feat_eda_min, feat_eda_max])
+			eda_features_labs.extend(['eda_qa_slope', 'eda_qa_min', 'eda_qa_max', 'window'])
+			eda_features_times.extend([chunk_start] * 4)
+			eda_features.extend([feat_eda_slope, feat_eda_min, feat_eda_max, window])
 
-		else: # log that file was empty
-			eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range', 'eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range', 'eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc', 'eda_qa_slope', 'eda_qa_min', 'eda_qa_max'])
-			eda_features_times.extend([chunk_start] * 13)
-			eda_features.extend(['NaN'] * 13)
+		else: # log that file was empty or poor quality
+			eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range', 'eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range', 'eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc', 'eda_qa_slope', 'eda_qa_min', 'eda_qa_max', 'window'])
+			eda_features_times.extend([chunk_start] * 14)
+			if (len(eda_signal) < ((window*60*sfreq)/2)) or (numpy.mean(eda_signal) < 0.02):
+				eda_features.extend(['Insuf. Quality']*14)
+			else:
+				eda_features.extend(['NaN'] * 14)
 
 		# convert to df for output
 		eda_df = {'time': eda_features_times, 'feature': eda_features_labs, 'eda': eda_features}
@@ -1117,21 +1120,128 @@ def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_startt
 			hr_trunc = scipy.stats.trim_mean(analyzed[['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF']], 0.05)
 			hr_trunc  = numpy.append(hr_trunc, analyzed.BPM.max())
 			hr_trunc  = numpy.append(hr_trunc, analyzed.BPM.min())
+			hr_trunc = numpy.append(hr_trunc, window)
 			hr_trunc  = hr_trunc.tolist()
 			# add features to list
 			hr_features.extend(hr_trunc)
-			hr_features_labs.extend(['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF', 'Max', 'Min'])
-			hr_features_times.extend([chunk_start]*9)
+			hr_features_labs.extend(['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF', 'Max', 'Min', 'window'])
+			hr_features_times.extend([chunk_start]*10)
 		except:
-			hr_features_labs.extend(['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF', 'Max', 'Min'])
-			hr_features_times.extend([chunk_start]*9)
-			hr_features.extend(['NaN'] * 9)
+			hr_features_labs.extend(['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF', 'Max', 'Min', 'window'])
+			hr_features_times.extend([chunk_start]*10)
+			hr_features.extend(['NaN'] * 10)
 
 	hr_df = {'time': hr_features_times, 'feature': hr_features_labs, 'hr': hr_features}
 	hr_df = pandas.DataFrame(hr_df)
 	hr_df = hr_df.pivot(index='time', columns='feature')
 
 	return hr_df
+
+
+def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=None, app_starttime=None,
+							 app_endtime=None, app_window='before'):
+	"""
+	Estimate features from activpal events file
+	Parameters
+	----------
+	apl_events: str or pandas.DataFrame
+		Path to acitvpal file ending with "tagged_events.csv" or a pandas data frame
+	window: int
+		Window (in minutes) to use for signal chunking. Features estimated from window.
+	bout_duration: int
+		Definition of bout duration (in minutes) to quantify if excercise bout happened.
+	app_data: str or pandas.DataFrame
+		Path or data frame containing app EMA  data to use for signal search
+	app_starttime: str
+		String indicating column containing survey start times
+	app_endtime: str
+		String indicating coloumn containing survery end times
+	app_window: str
+		Window to use around app data, can be 'before', 'after' or 'around'
+	Returns
+	-------
+	df:
+		A dataframe containing features and timestamps
+	"""
+	# read data frame
+	if type(apl_events) == str:
+		df_apl = pandas.read_csv(apl_events)
+	else:
+		df_apl = apl_events
+	# convert timestamps
+	if type(df_apl.APDatetimevar[1]) != pandas._libs.tslibs.timestamps.Timestamp:
+		df_apl.APDatetimevar = df_apl.APDatetimevar.apply(xlrd.xldate_as_datetime, convert_dtype=True, datemode=0)
+
+	# resample dataframe to 1HZ
+	df_apl = df_apl.set_index(df_apl.APDatetimevar)
+	df_apl.index = df_apl.index.tz_localize(tz='Europe/Amsterdam')
+	df_apl = df_apl.resample('1S').ffill()
+	df_apl = df_apl.bfill()
+	df_apl['time'] = df_apl.index
+	sfreq = 1
+
+	if app_data == None:
+		df_apl = df_apl.APActivity_code
+		signal_chunks_list = chunk_signal(df_apl, sfreq, window)
+	else:
+		signal_chunks_list, time_chunks_list = chunk_signal_at_app(df_apl, channel_name='APActivity_code',
+																   app_data=app_data, app_starttime=app_starttime,
+																   app_endtime=app_endtime, app_window=app_window,
+																   window=window)
+
+	# extract features
+	time_list = list()
+	header_list = list()
+	feature_list = list()
+	for i, signal_chunk in enumerate(signal_chunks_list):
+
+		# log sample start time
+		if app_data == None:
+			chunk_start = signal_chunk.index[0]
+		else:
+			chunk_start = time_chunks_list[i]
+
+		# estimate percent in:
+		# Activity codes: 0=sedentary 1=standing 2=stepping 2.1=cycling 3.1=primary lying, 3.2=secondary lying 4=non-wear 5=travelling
+		code_0 = len(signal_chunk[signal_chunk == 0]) / len(signal_chunk) * 100  # sedentary
+		code_1 = len(signal_chunk[signal_chunk == 1]) / len(signal_chunk) * 100  # standing
+		code_2 = len(signal_chunk[signal_chunk == 2]) / len(signal_chunk) * 100  # stepping
+		code_2_1 = len(signal_chunk[signal_chunk == 2.1]) / len(signal_chunk) * 100  # cycling
+		code_3 = len(signal_chunk[signal_chunk == 3]) / len(signal_chunk) * 100  # laying
+		code_3_1 = len(signal_chunk[signal_chunk == 3.1]) / len(signal_chunk) * 100  # laying prim
+		code_3_2 = len(signal_chunk[signal_chunk == 3.2]) / len(signal_chunk) * 100  # laying second
+		code_4 = len(signal_chunk[signal_chunk == 4]) / len(signal_chunk) * 100  # non-wear
+		code_5 = len(signal_chunk[signal_chunk == 5]) / len(signal_chunk) * 100  # travelling
+
+		# estimate bouts in window
+		if window > 20:
+			j = 0
+			bout_duration_s = bout_duration * 60
+			while (j + (bout_duration_s) <= len(signal_chunk)):
+				bout = signal_chunk[j:j + bout_duration_s]
+				if len(bout.unique() == 1) and (round(bout.unique()[0]) == 2):
+					movement_bout = 'yes'
+				else:
+					movement_bout = 'no'
+				j = j + 1
+		else:
+			movement_bout = 'window too short'
+
+		time_list.extend([chunk_start] * 10)
+		header_list.extend(
+			['apl_per_sedentary', 'apl_per_standing', 'apl_per_stepping', 'apl_per_cycling', 'apl_per_laying',
+			 'apl_per_lay_prim', 'apl_per_lay_second', 'apl_per_nonwear', 'apl_per_travel', 'apl_bout_yn'])
+		feature_list.extend(
+			[code_0, code_1, code_2, code_2_1, code_3, code_3_1, code_3_2, code_4, code_5, movement_bout])
+
+	# convert to df for output
+	apl_df_full = {'time': time_list, 'feature': header_list, 'apl': feature_list}
+	apl_df_full = pandas.DataFrame(apl_df_full)
+	apl_df_full = apl_df_full.pivot(index='time', columns='feature', values='apl')
+
+	return apl_df_full
+
+
 """
 	comment
 	TODO:
