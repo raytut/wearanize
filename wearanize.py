@@ -74,7 +74,7 @@ import subprocess
 import xlrd 
 
 from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped, raw_zmax_data_quality
-from e4_converter import read_e4_to_raw_list, read_e4_to_raw, e4_concatenate, e4_concatente_par
+from e4_converter import read_e4_to_raw_list, read_e4_to_raw, e4_raw_to_df, e4_concatenate, e4_concatente_par
 import apl_converter as apl
 from apl_converter import apl_to_raw, apl_window_to_raw
 
@@ -821,7 +821,6 @@ def sync_wearables(parentdirpath, filepath_csv_in, filepath_csv_out, device='all
 		df_by_subject_path_id_filtered['rec_duration_datetime_reference'] = numpy.datetime64("NaT")
 		df_by_subject_path_id_filtered['sampling_rate_max_Hz_reference_adaption'] = numpy.NAN
 
-
 		#['rec_start_datetime_reference', 'rec_stop_datetime_reference', 'rec_duration_datetime_reference', 'sampling_rate_max_Hz_reference_adaption']
 		list_datetimes_paired = []
 		for row in df_by_subject_path_id_filtered.iterrows():
@@ -967,20 +966,7 @@ def chunk_signal_at_app(signal, channel_name, app_data, app_starttime, app_endti
 def features_eda_from_raw(raw, channel_name,  window=10, features=['tonic', 'phasic'], delta=0.02, app_data=None, app_starttime=None,
 						  app_endtime=None, app_window='before'):
 	# convert to data frame with time index
-	eda = raw.to_data_frame(time_format='datetime')
-
-	# get sampling frequency
-	sfreq = raw.info['sfreq']
-	sfreq_ms = str(int(1000 * (1 / sfreq)))
-
-	# set time in case its present in file, aslo round to nearest ms
-	if 'timestamp_ux' in eda:
-		eda.time = pandas.to_datetime(eda['timestamp_ux'], exact=True, utc=True)
-		eda.time = eda.time.round('ms')
-		eda = eda.set_index(eda.time, drop=True)
-
-	# resample to expand missing windows
-	eda = eda.resample(sfreq_ms + "ms").ffill(limit=int(sfreq))
+	eda, sfreq, sfreq_ms = e4_raw_to_df(raw)
 
 	# create chunks depending on window
 	if app_data == None:
@@ -1075,20 +1061,7 @@ def features_eda_from_raw(raw, channel_name,  window=10, features=['tonic', 'pha
 def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_starttime=None,
 						  app_endtime=None, app_window='before'):
 	# convert to data frame with time index
-	hr = raw.to_data_frame(time_format='datetime')
-
-	# get sampling frequency
-	sfreq = raw.info['sfreq']
-	sfreq_ms = str(int(1000 * (1 / sfreq)))
-
-	# set time in case its present in file, aslo round to nearest ms
-	if 'timestamp_ux' in hr:
-		hr.time = pandas.to_datetime(hr['timestamp_ux'], exact=True, utc=True)
-		hr.time = hr.time.round('ms')
-		hr = hr.set_index(hr.time, drop=True)
-
-	# resample to expand missing windows
-	hr = hr.resample(sfreq_ms + "ms").ffill(limit=int(sfreq))
+	hr, sfreq, sfreq_ms = e4_raw_to_df(raw)
 
 	# create chunks depending on window
 	if app_data == None:
@@ -1111,9 +1084,9 @@ def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_startt
 		try:
 			# turn into hrv signal class
 			signal = rhv.Signal(hr_chunk.to_numpy(), sample_rate=int(sfreq))
-			# The high-pass filter is implemented with a cutoff of 0.5Hz by default, which can be changed with highpass_cutoff.
+			# high pass filter
 			preprocessed = rhv.preprocess(signal, highpass_cutoff=0.06, lowpass_cutoff=8, sg_settings=(4, 200), resample_rate=32)
-			# Preprocess: may interpolate data, check the docstring on `rapidhrv.preprocess`
+			# Preprocess using a 1-second sliding time window
 			analyzed = rhv.analyze(preprocessed, outlier_detection_settings="moderate", amplitude_threshold=30, window_overlap=9)  # Analyze signal
 			analyzed.dropna(inplace=True)
 			# trim outliers and get values
@@ -1131,11 +1104,71 @@ def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_startt
 			hr_features_times.extend([chunk_start]*10)
 			hr_features.extend(['NaN'] * 10)
 
-	hr_df = {'time': hr_features_times, 'feature': hr_features_labs, 'hr': hr_features}
+	hr_df = {'time':hr_features_times, 'feature':hr_features_labs, 'hr':hr_features}
 	hr_df = pandas.DataFrame(hr_df)
-	hr_df = hr_df.pivot(index='time', columns='feature')
+	hr_df = hr_df.pivot(index='time', columns='feature', values='hr')
 
 	return hr_df
+
+
+def features_temp_from_raw(raw, channel_name, window=10, app_data=None, app_starttime=None, app_endtime=None, app_window='before'):
+
+	# convert to df
+	signal, sfreq, sfreq_ms = e4_raw_to_df(raw)
+
+	# create chunks depending on window
+	if app_data == None:
+		signal_chunks_list = chunk_signal(signal[channel_name], sfreq, window)
+		time_chunks_list = chunk_signal(signal.index, sfreq, window)
+	else:
+		signal_chunks_list, time_chunks_list = chunk_signal_at_app(signal=signal, channel_name=channel_name, app_data=app_data, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window, window=window)
+
+	# initialize lists for features
+	temp_features = list()
+	temp_labs = list()
+	temp_times = list()
+	for i, signal_chunk in enumerate(signal_chunks_list):
+		# TODO: Add Quality assessments
+		# log sample start time
+		if app_data == None:
+			chunk_start = time_chunks_list[i][0]
+		else:
+			chunk_start = time_chunks_list[i]
+
+		# turn into pyphysio signal class
+		signal_chunk_evenly = ph.EvenlySignal(signal_chunk, sfreq)
+		# remove spikes
+		signal_chunk_evenly = ph.Filters.RemoveSpikes()(signal_chunk_evenly)
+
+		# estimate features
+		temp_mean = ph.TimeDomain.Mean()(signal_chunk_evenly)
+		temp_min = ph.TimeDomain.Min()(signal_chunk_evenly)
+		temp_max = ph.TimeDomain.Max()(signal_chunk_evenly)
+
+		## slope
+		feat_slope = signal_chunk.resample('1S').ffill()
+		feat_slope = feat_slope.reset_index()
+		y = numpy.array(feat_slope['temp'].fillna(method='bfill').values, dtype=float)
+		x = numpy.array(pandas.to_datetime(feat_slope['time'].dropna()).index.values, dtype=float)
+		temp_slope = scipy.stats.linregress(x, y)[0]
+
+		# check if acceptable range
+		if (temp_max < 45) and (temp_min > 15):
+			# add features to list
+			temp_features.extend([temp_mean, temp_min, temp_max, temp_slope, window])
+			temp_labs.extend(['temp_mean', 'temp_min', 'temp_max', 'temp_slope', 'window'])
+			temp_times.extend([chunk_start]*5)
+		else:
+			temp_features.extend(['out of range','out of range', 'out of range', 'out of range', window])
+			temp_labs.extend(['temp_mean', 'temp_min', 'temp_max', 'temp_slope', 'window'])
+			temp_times.extend([chunk_start]*5)
+
+	# convert to df
+	temp_df = {'time':temp_times, 'feature':temp_labs, 'temp':temp_features}
+	temp_df = pandas.DataFrame(temp_df)
+	temp_df = temp_df.pivot(index='time', columns='feature', values='temp')
+
+	return temp_df
 
 
 def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=None, app_starttime=None,

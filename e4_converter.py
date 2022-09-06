@@ -151,6 +151,25 @@ def read_e4_to_raw(filepath, resample_Hz=64, interpolate_method='ffill'):
 	raw.set_meas_date(mne_raw_list[0].info['meas_date'])
 	return raw
 
+def e4_raw_to_df(raw):
+# convert to data frame with time index
+	e4_df = raw.to_data_frame(time_format='datetime')
+
+	# get sampling frequency
+	sfreq = raw.info['sfreq']
+	sfreq_ms = str(int(1000 * (1 / sfreq)))
+
+	# set time in case its present in file, aslo round to nearest ms
+	if 'timestamp_ux' in e4_df:
+		e4_df.time = pandas.to_datetime(e4_df['timestamp_ux'], exact=True, utc=True)
+		e4_df.time = e4_df.time.round('ms')
+		e4_df = e4_df.set_index(e4_df.time, drop=True)
+
+	# resample to expand missing windows
+	e4_df = e4_df.resample(sfreq_ms + "ms").ffill(limit=int(sfreq))
+	return e4_df, sfreq, sfreq_ms
+
+
 # temporally concatenate e4 data and save as separate zip file in same directory
 def e4_concatenate(project_folder, sub_nr, resampling=None):
 	"""
