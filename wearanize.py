@@ -53,6 +53,7 @@ from sklearn.linear_model import LinearRegression
 import argparse
 import pathlib
 import statsmodels
+import statsmodels.api as sm
 import pytz
 import errno
 import pyphysio as ph
@@ -1058,8 +1059,7 @@ def features_eda_from_raw(raw, channel_name,  window=10, features=['tonic', 'pha
 
 	return eda_df
 
-def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_starttime=None,
-						  app_endtime=None, app_window='before'):
+def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_starttime=None, app_endtime=None, app_window='before'):
 	# convert to data frame with time index
 	hr, sfreq, sfreq_ms = e4_raw_to_df(raw)
 
@@ -1087,7 +1087,7 @@ def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_startt
 			# high pass filter
 			preprocessed = rhv.preprocess(signal, highpass_cutoff=0.06, lowpass_cutoff=8, sg_settings=(4, 200), resample_rate=32)
 			# Preprocess using a 1-second sliding time window
-			analyzed = rhv.analyze(preprocessed, outlier_detection_settings="moderate", amplitude_threshold=30, window_overlap=9)  # Analyze signal
+			analyzed = rhv.analyze(preprocessed, window_width=10,  window_overlap=9, outlier_detection_settings="moderate", amplitude_threshold=30)
 			analyzed.dropna(inplace=True)
 			# trim outliers and get values
 			hr_trunc = scipy.stats.trim_mean(analyzed[['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF']], 0.05)
@@ -1169,6 +1169,116 @@ def features_temp_from_raw(raw, channel_name, window=10, app_data=None, app_star
 	temp_df = temp_df.pivot(index='time', columns='feature', values='temp')
 
 	return temp_df
+
+
+def features_acc_from_raw(raw, channel_name_x, channel_name_y, channel_name_z, window=10, app_data=None,
+						  app_starttime=None, app_endtime=None, app_window='before'):
+	# convert to df
+	signal, sfreq, sfreq_ms = e4_raw_to_df(raw)
+
+	# create chunks depending on window
+	if app_data == None:
+		signal_chunks_x = chunk_signal(signal[channel_name_x], sfreq, window)
+		signal_chunks_y = chunk_signal(signal[channel_name_y], sfreq, window)
+		signal_chunks_z = chunk_signal(signal[channel_name_z], sfreq, window)
+		time_chunks_list = chunk_signal(signal.index, sfreq, window)
+	else:
+		signal_chunks_x, time_chunks_list = chunk_signal_at_app(signal=signal, channel_name=channel_name_x,
+																app_data=app_data, app_starttime=app_starttime,
+																app_endtime=app_endtime, app_window=app_window,
+																window=window)
+		signal_chunks_y, _ = chunk_signal_at_app(signal=signal, channel_name=channel_name_x, app_data=app_data,
+												 app_starttime=app_starttime, app_endtime=app_endtime,
+												 app_window=app_window, window=window)
+		signal_chunks_z, _ = chunk_signal_at_app(signal=signal, channel_name=channel_name_x, app_data=app_data,
+												 app_starttime=app_starttime, app_endtime=app_endtime,
+												 app_window=app_window, window=window)
+
+	# initialize lists for features
+	acc_features = list()
+	acc_labs = list()
+	acc_times = list()
+	for i, _ in enumerate(signal_chunks_x):
+
+		# log sample start time
+		if app_data == None:
+			chunk_start = time_chunks_list[i][0]
+		else:
+			chunk_start = time_chunks_list[i]
+
+		# subset signals
+		acc_x = signal_chunks_x[i].to_numpy()
+		acc_y = signal_chunks_y[i].to_numpy()
+		acc_z = signal_chunks_z[i].to_numpy()
+
+		feature_prefix = ["acc_x", "acc_y", "acc_z", "acc_mag", "acc_x_deriv", "acc_y_deriv", "acc_z_deriv",
+						  "acc_mag_deriv"]
+		feature_list = ['mean', 'sd', 'median_abs_dev', 'minimum', 'maximum', 'energy', 'iqr', 'ar_coef', 'entropy']
+		# Feature estimation based on Zhu et al (2017)
+		if len(acc_x) > 0:
+			# Magnitude: i.e., mean displacement
+			acc_x_dis = numpy.array(abs(numpy.diff(acc_x, prepend=acc_x[0])))
+			acc_y_dis = numpy.array(abs(numpy.diff(acc_y, prepend=acc_y[0])))
+			acc_z_dis = numpy.array(abs(numpy.diff(acc_z, prepend=acc_z[0])))
+			acc_mag = numpy.sqrt(acc_x_dis ** 2 + acc_y_dis ** 2 + acc_z_dis ** 2)
+
+			# jerk (derivative)
+			deriv_acc_x = numpy.gradient(acc_x)
+			deriv_acc_y = numpy.gradient(acc_y)
+			deriv_acc_z = numpy.gradient(acc_z)
+			deriv_acc_mag = numpy.gradient(acc_mag)
+
+			for num, j in enumerate(
+					[acc_x_dis, acc_y_dis, acc_z_dis, acc_mag, deriv_acc_x, deriv_acc_y, deriv_acc_z, deriv_acc_mag]):
+				# time domain features
+				mean = j.mean()
+				sd = j.std()
+				median_abs_dev = scipy.stats.median_abs_deviation(j)
+				minimum = j.min()
+				maximum = j.max()
+				# energy and IQR
+				energy = numpy.sum(j * j) / j.size
+				q1, q2 = numpy.percentile(j, [75, 25])
+				iqr = q1 - q2
+				# autoregressive coefficient
+				ar_coef, _ = sm.regression.linear_model.burg(j, order=1, demean=True)
+				#  estimate entropy
+				n_j = len(j)
+				if n_j <= 1:
+					entropy = 0
+				value, counts = numpy.unique(j, return_counts=True)
+				probs = counts / n_j
+				n_classes = numpy.count_nonzero(probs)
+				if n_classes <= 1:
+					entropy = 0
+				else:
+					entropy = 0
+					# Compute entropy
+					base = e
+					for k in probs:
+						entropy -= k * log(k, base)
+				# add all features to list
+				acc_features.extend([mean, sd, median_abs_dev, minimum, maximum, energy, iqr, ar_coef[0], entropy])
+				feature_i = feature_prefix[num]
+				acc_labs.extend([(feature_i + '_') + feat_name for feat_name in feature_list])
+				acc_times.extend([chunk_start] * 9)
+			SMA = acc_mag.sum() / len(acc_mag)
+			acc_features.extend([SMA])
+			acc_labs.extend(['acc_SMA'])
+			acc_times.extend([chunk_start])
+		else:
+			for feat_pre in feature_prefix:
+				acc_features.extend(["NaN"] * 10)
+				acc_labs.extend([(feat_pre + '_') + feat_name for feat_name in feature_list])
+				acc_labs.extend(['acc_SMA'])
+				acc_times.extend([chunk_start] * 10)
+	# convert to df
+	acc_df = {'time': acc_times, 'feature': acc_labs, 'acc': acc_features}
+	acc_df = pandas.DataFrame(acc_df)
+	acc_df.drop_duplicates(inplace=True)
+	acc_df = acc_df.pivot(index='time', columns='feature', values='acc')
+
+	return acc_df
 
 
 def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=None, app_starttime=None,
