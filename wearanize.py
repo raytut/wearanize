@@ -73,6 +73,7 @@ import logging
 import traceback
 import subprocess
 import xlrd 
+from math import log, e
 
 from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped, raw_zmax_data_quality
 from e4_converter import read_e4_to_raw_list, read_e4_to_raw, e4_raw_to_df, e4_concatenate, e4_concatente_par
@@ -964,10 +965,14 @@ def chunk_signal_at_app(signal, channel_name, app_data, app_starttime, app_endti
 #  Feature Extraction
 # =============================================================================
 
-def features_eda_from_raw(raw, channel_name,  window=10, features=['tonic', 'phasic'], delta=0.02, app_data=None, app_starttime=None,
+def features_eda_from_raw(raw, channel_name, device='emp', window=10, features=['tonic', 'phasic'], delta=0.02, app_data=None, app_starttime=None,
 						  app_endtime=None, app_window='before'):
 	# convert to data frame with time index
-	eda, sfreq, sfreq_ms = e4_raw_to_df(raw)
+	if device == 'emp':
+		eda, sfreq, sfreq_ms = e4_raw_to_df(raw)
+	else:
+		signal = raw.to_data_frame(time_format='datetime')
+		sfreq = raw.info['sfreq']
 
 	# create chunks depending on window
 	if app_data == None:
@@ -1048,9 +1053,9 @@ def features_eda_from_raw(raw, channel_name,  window=10, features=['tonic', 'pha
 			eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range', 'eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range', 'eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc', 'eda_qa_slope', 'eda_qa_min', 'eda_qa_max', 'window'])
 			eda_features_times.extend([chunk_start] * 14)
 			if (len(eda_signal) < ((window*60*sfreq)/2)) or (numpy.mean(eda_signal) < 0.02):
-				eda_features.extend(['Insuf. Quality']*14)
+				eda_features.extend(['qa_fail']*14)
 			else:
-				eda_features.extend(['NaN'] * 14)
+				eda_features.extend(['nan'] * 14)
 
 		# convert to df for output
 		eda_df = {'time': eda_features_times, 'feature': eda_features_labs, 'eda': eda_features}
@@ -1059,9 +1064,16 @@ def features_eda_from_raw(raw, channel_name,  window=10, features=['tonic', 'pha
 
 	return eda_df
 
-def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_starttime=None, app_endtime=None, app_window='before'):
+
+
+def features_hr_from_raw(raw, channel_name, device='emp', window=10, app_data=None, app_starttime=None, app_endtime=None, app_window='before'):
+
 	# convert to data frame with time index
-	hr, sfreq, sfreq_ms = e4_raw_to_df(raw)
+	if device == 'emp':
+		hr, sfreq, sfreq_ms = e4_raw_to_df(raw)
+	else:
+		signal = raw.to_data_frame(time_format='datetime')
+		sfreq = raw.info['sfreq']
 
 	# create chunks depending on window
 	if app_data == None:
@@ -1102,7 +1114,7 @@ def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_startt
 		except:
 			hr_features_labs.extend(['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF', 'Max', 'Min', 'window'])
 			hr_features_times.extend([chunk_start]*10)
-			hr_features.extend(['NaN'] * 10)
+			hr_features.extend(['nan'] * 10)
 
 	hr_df = {'time':hr_features_times, 'feature':hr_features_labs, 'hr':hr_features}
 	hr_df = pandas.DataFrame(hr_df)
@@ -1111,10 +1123,14 @@ def features_hr_from_raw(raw, channel_name, window=10, app_data=None, app_startt
 	return hr_df
 
 
-def features_temp_from_raw(raw, channel_name, window=10, app_data=None, app_starttime=None, app_endtime=None, app_window='before'):
+def features_temp_from_raw(raw, channel_name, device='emp', window=10, app_data=None, app_starttime=None, app_endtime=None, app_window='before'):
 
-	# convert to df
-	signal, sfreq, sfreq_ms = e4_raw_to_df(raw)
+	# convert to data frame with time index
+	if device is 'emp':
+		signal, sfreq, sfreq_ms = e4_raw_to_df(raw)
+	else:
+		signal = raw.to_data_frame(time_format='datetime')
+		sfreq = raw.info['sfreq']
 
 	# create chunks depending on window
 	if app_data == None:
@@ -1159,7 +1175,7 @@ def features_temp_from_raw(raw, channel_name, window=10, app_data=None, app_star
 			temp_labs.extend(['temp_mean', 'temp_min', 'temp_max', 'temp_slope', 'window'])
 			temp_times.extend([chunk_start]*5)
 		else:
-			temp_features.extend(['out of range','out of range', 'out of range', 'out of range', window])
+			temp_features.extend(['qa_fail','qa_fail', 'qa_fail', 'qa_fail', window])
 			temp_labs.extend(['temp_mean', 'temp_min', 'temp_max', 'temp_slope', 'window'])
 			temp_times.extend([chunk_start]*5)
 
@@ -1171,11 +1187,14 @@ def features_temp_from_raw(raw, channel_name, window=10, app_data=None, app_star
 	return temp_df
 
 
-def features_acc_from_raw(raw, channel_name_x, channel_name_y, channel_name_z, window=10, app_data=None,
+def features_acc_from_raw(raw, channel_name_x, channel_name_y, channel_name_z, device='emp', window=10, app_data=None,
 						  app_starttime=None, app_endtime=None, app_window='before'):
-	# convert to df
-	signal, sfreq, sfreq_ms = e4_raw_to_df(raw)
-
+	# convert to data frame with time index
+	if device == 'emp':
+		signal, sfreq, sfreq_ms = e4_raw_to_df(raw)
+	else:
+		signal = raw.to_data_frame(time_format='datetime')
+		sfreq = raw.info['sfreq']
 	# create chunks depending on window
 	if app_data == None:
 		signal_chunks_x = chunk_signal(signal[channel_name_x], sfreq, window)
@@ -1268,7 +1287,7 @@ def features_acc_from_raw(raw, channel_name_x, channel_name_y, channel_name_z, w
 			acc_times.extend([chunk_start])
 		else:
 			for feat_pre in feature_prefix:
-				acc_features.extend(["NaN"] * 10)
+				acc_features.extend(["nan"] * 10)
 				acc_labs.extend([(feat_pre + '_') + feat_name for feat_name in feature_list])
 				acc_labs.extend(['acc_SMA'])
 				acc_times.extend([chunk_start] * 10)
