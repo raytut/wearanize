@@ -27,147 +27,6 @@ def fileparts(filepath):
 	extension = name_extension[1]
 	return path, name, extension
 
-# convert e4 data to mne.raw format
-def read_e4_to_raw_list(filepath):
-
-	filepath = os.path.join(filepath)
-	filepath = os.path.normpath(filepath)
-	path, name, extension = fileparts(filepath)
-
-	# Read in the e4 file
-	emp_zip = zipfile.ZipFile(filepath)
-	channels = ['BVP.csv', 'HR.csv', 'EDA.csv', 'TEMP.csv', 'ACC.csv']
-	sampling_frequencies = [64, 1, 4, 4, 32]
-	mne_raw_list = ["unretrieved"] * len(channels)
-
-	# Check if single session or full recording
-	if "full" not in name:
-		# Run over all signals
-		for i, signal_type in enumerate(channels):
-			if signal_type != "ACC.csv":
-				# Read signal
-				raw = pandas.read_csv(emp_zip.open(signal_type))
-				# create channel info for mne.info file
-				channel = signal_type.split(".")
-				channel = channel[0].lower()
-				sfreq = int(raw.iloc[0, 0])
-				timestamp = int(float(raw.columns[0]))
-				mne_info = mne.create_info(ch_names=[channel], sfreq=sfreq, ch_types="misc")
-				# Create MNE Raw object and add to a list of objects
-				mne_obj = mne.io.RawArray([raw.iloc[1:, 0]], mne_info, first_samp=0)
-				mne_obj.set_meas_date(timestamp)
-				mne_raw_list[i] = mne_obj
-			else:
-				# Read signal
-				raw = pandas.read_csv(emp_zip.open(signal_type))
-				# create channel info for mne.info file
-				channel = signal_type.split(".")
-				channel = channel[0].lower()
-				sfreq = int(raw.iloc[0, 0])
-				timestamp = int(float(raw.columns[0]))
-				mne_info = mne.create_info(ch_names=["acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
-				# convert to standard gunits
-				raw.iloc[1:, 0] = raw.iloc[1:, 0] * 2 / 128
-				raw.iloc[1:, 1] = raw.iloc[1:, 1] * 2 / 128
-				raw.iloc[1:, 2] = raw.iloc[1:, 2] * 2 / 128
-				# Create MNE Raw object and add to a list of objects
-				mne_obj = mne.io.RawArray([raw.iloc[1:, 0], raw.iloc[1:, 1], raw.iloc[1:, 2]], mne_info, first_samp=0)
-				mne_obj.set_meas_date(timestamp)
-				mne_raw_list[i] = mne_obj
-	else:
-		# Run over all signals
-		for i, signal_type in enumerate(channels):
-			if signal_type != "ACC.csv":
-				# Read signal
-				raw = pandas.read_csv(emp_zip.open(signal_type), sep="\t", index_col=0)
-
-				# create channel info for mne.info file
-				channel = signal_type.split(".")
-				channel = channel[0].lower()
-				sfreq = sampling_frequencies[i]
-				mne_info = mne.create_info(ch_names=["timestamp_ux", channel], sfreq=sfreq, ch_types="misc")
-
-				# create timestamp arra
-				raw.time = pandas.to_datetime(raw.time, format='%Y-%m-%d %H:%M:%S.%f', exact=True, utc=True)
-				timestamp = raw.iloc[0:1, 1]
-				raw['time'] = pandas.to_numeric(raw['time'])
-
-				# create mne object. time not relevant here
-				mne_obj = mne.io.RawArray([raw.iloc[1:, 1], raw.iloc[1:, 0]], mne_info, first_samp=0)
-				mne_raw_list[i] = mne_obj
-			else:
-
-				# Read signal
-				raw = pandas.read_csv(emp_zip.open(signal_type), sep="\t", index_col=0)
-				pandas.to_datetime(raw.time)
-
-				# create channel info for mne.info file
-				channel = signal_type.split(".")
-				channel = channel[0].lower()
-				sfreq = sampling_frequencies[i]
-				mne_info = mne.create_info(ch_names=["timestamp_ux", "acc_x", "acc_y", "acc_z"], sfreq=sfreq,
-										   ch_types="misc")
-
-				# create timestamp arra
-				raw.time = pandas.to_datetime(raw.time, format='%Y-%m-%d %H:%M:%S.%f', exact=True, utc=True)
-				timestamp = raw.iloc[0:1, 3]
-				raw['time'] = pandas.to_numeric(raw['time'])
-
-				# Create MNE Raw object and add to a list of objects
-				mne_obj = mne.io.RawArray([raw.iloc[1:, 3], raw.iloc[1:, 0], raw.iloc[1:, 1], raw.iloc[1:, 2]],
-										  mne_info, first_samp=0)
-				mne_raw_list[i] = mne_obj
-
-	return mne_raw_list
-
-# convert e4 data to single mne raw file (flattened)
-def read_e4_to_raw(filepath, resample_Hz=64, interpolate_method='ffill'):
-	"""
-	Read in Empatica files to raw format with resampling for different channels
-	Parameters:
-	----------
-	filepath: str
-		Path to zip file containing E4 Data. Must be original and not concatenated file.
-	resample: int
-		Resampling frequency
-	interpolate_method: str
-		Method with which interpolation is done
-	"""
-	mne_raw_list = read_e4_to_raw_list(filepath)
-	mne_raw_list_new = []
-	mne_raw_df = pandas.DataFrame()
-	for i, raw in enumerate(mne_raw_list):
-		if raw != "unretrieved":
-			mne_raw_list_new.append(raw.resample(resample_Hz))
-			mne_temp_df = mne_raw_list_new[i].to_data_frame(time_format="datetime")
-			mne_temp_df = mne_temp_df.set_index('time', drop=True)
-			mne_raw_df = pandas.concat([mne_raw_df, mne_temp_df], axis=1)
-
-	# append the raws together
-	mne_raw_info = mne.create_info(ch_names=list(mne_raw_df.columns), sfreq=resample_Hz)
-	mne_raw_df = mne_raw_df.interpolate(method=interpolate_method)
-	mne_raw_np = mne_raw_df.to_numpy().transpose()
-	raw = mne.io.RawArray(mne_raw_np, mne_raw_info)
-	raw.set_meas_date(mne_raw_list[0].info['meas_date'])
-	return raw
-
-def e4_raw_to_df(raw):
-# convert to data frame with time index
-	e4_df = raw.to_data_frame(time_format='datetime')
-
-	# get sampling frequency
-	sfreq = raw.info['sfreq']
-	sfreq_ms = str(int(1000 * (1 / sfreq)))
-
-	# set time in case its present in file, aslo round to nearest ms
-	if 'timestamp_ux' in e4_df:
-		e4_df.time = pandas.to_datetime(e4_df['timestamp_ux'], exact=True, utc=True)
-		e4_df.time = e4_df.time.round('ms')
-		e4_df = e4_df.set_index(e4_df.time, drop=True)
-
-	# resample to expand missing windows
-	e4_df = e4_df.resample(sfreq_ms + "ms").ffill(limit=int(sfreq))
-	return e4_df, sfreq, sfreq_ms
 
 
 # temporally concatenate e4 data and save as separate zip file in same directory
@@ -413,6 +272,193 @@ def e4_concatente_par(project_folder, verbose=0):
 	# Get list of subjects
 	sub_list = glob.glob(project_folder + os.sep + "sub-*")
 	Parallel(n_jobs=-2, verbose=verbose)(delayed(e4_concatenate)(project_folder, i) for i in sub_list)
+
+
+# convert e4 data to mne.raw format
+def read_e4_to_raw_list(filepath):
+	"""
+	Parameters
+	----------
+	filepath: str
+		String like path to E4 sessions. Can be single recording or full recording
+	Returns
+	-------
+	mne_raw_list: list
+		List object containing each e4 channel as an MNE.Raw array
+	"""
+	filepath = os.path.join(filepath)
+	filepath = os.path.normpath(filepath)
+	path, name, extension = fileparts(filepath)
+
+	# Read in the e4 file
+	emp_zip = zipfile.ZipFile(filepath)
+	channels = ['BVP.csv', 'HR.csv', 'EDA.csv', 'TEMP.csv', 'ACC.csv']
+	sampling_frequencies = [64, 1, 4, 4, 32]
+	mne_raw_list = ["unretrieved"] * len(channels)
+
+	# Check if single session or full recording
+	if "full" not in name:
+		# Run over all signals
+		for i, signal_type in enumerate(channels):
+			if signal_type != "ACC.csv":
+				# Read signal
+				raw = pandas.read_csv(emp_zip.open(signal_type))
+				# create channel info for mne.info file
+				channel = signal_type.split(".")
+				channel = channel[0].lower()
+				sfreq = int(raw.iloc[0, 0])
+				timestamp = int(float(raw.columns[0]))
+				mne_info = mne.create_info(ch_names=[channel], sfreq=sfreq, ch_types="misc")
+				# Create MNE Raw object and add to a list of objects
+				mne_obj = mne.io.RawArray([raw.iloc[1:, 0]], mne_info, first_samp=0)
+				mne_obj.set_meas_date(timestamp)
+				mne_raw_list[i] = mne_obj
+			else:
+				# Read signal
+				raw = pandas.read_csv(emp_zip.open(signal_type))
+				# create channel info for mne.info file
+				channel = signal_type.split(".")
+				channel = channel[0].lower()
+				sfreq = int(raw.iloc[0, 0])
+				timestamp = int(float(raw.columns[0]))
+				mne_info = mne.create_info(ch_names=["acc_x", "acc_y", "acc_z"], sfreq=sfreq, ch_types="misc")
+				# convert to standard gunits
+				raw.iloc[1:, 0] = raw.iloc[1:, 0] * 2 / 128
+				raw.iloc[1:, 1] = raw.iloc[1:, 1] * 2 / 128
+				raw.iloc[1:, 2] = raw.iloc[1:, 2] * 2 / 128
+				# Create MNE Raw object and add to a list of objects
+				mne_obj = mne.io.RawArray([raw.iloc[1:, 0], raw.iloc[1:, 1], raw.iloc[1:, 2]], mne_info, first_samp=0)
+				mne_obj.set_meas_date(timestamp)
+				mne_raw_list[i] = mne_obj
+	else:
+		# Run over all signals
+		for i, signal_type in enumerate(channels):
+			if signal_type != "ACC.csv":
+				# Read signal
+				raw = pandas.read_csv(emp_zip.open(signal_type), sep="\t", index_col=0)
+
+				# create channel info for mne.info file
+				channel = signal_type.split(".")
+				channel = channel[0].lower()
+				sfreq = sampling_frequencies[i]
+				mne_info = mne.create_info(ch_names=["timestamp_ux", channel], sfreq=sfreq, ch_types="misc")
+
+				# create timestamp arra
+				raw.time = pandas.to_datetime(raw.time, format='%Y-%m-%d %H:%M:%S.%f', exact=True, utc=True)
+				timestamp = raw.iloc[0:1, 1]
+				raw['time'] = pandas.to_numeric(raw['time'])
+
+				# create mne object. time not relevant here
+				mne_obj = mne.io.RawArray([raw.iloc[1:, 1], raw.iloc[1:, 0]], mne_info, first_samp=0)
+				mne_raw_list[i] = mne_obj
+			else:
+
+				# Read signal
+				raw = pandas.read_csv(emp_zip.open(signal_type), sep="\t", index_col=0)
+				pandas.to_datetime(raw.time)
+
+				# create channel info for mne.info file
+				channel = signal_type.split(".")
+				channel = channel[0].lower()
+				sfreq = sampling_frequencies[i]
+				mne_info = mne.create_info(ch_names=["timestamp_ux", "acc_x", "acc_y", "acc_z"], sfreq=sfreq,
+										   ch_types="misc")
+
+				# create timestamp arra
+				raw.time = pandas.to_datetime(raw.time, format='%Y-%m-%d %H:%M:%S.%f', exact=True, utc=True)
+				timestamp = raw.iloc[0:1, 3]
+				raw['time'] = pandas.to_numeric(raw['time'])
+
+				# Create MNE Raw object and add to a list of objects
+				mne_obj = mne.io.RawArray([raw.iloc[1:, 3], raw.iloc[1:, 0], raw.iloc[1:, 1], raw.iloc[1:, 2]],
+										  mne_info, first_samp=0)
+				mne_raw_list[i] = mne_obj
+
+	return mne_raw_list
+
+
+def read_e4_raw_to_df(raw):
+# convert to data frame with time index
+	e4_df = raw.to_data_frame(time_format='datetime')
+
+	# get sampling frequency
+	sfreq = raw.info['sfreq']
+	sfreq_ms = str((1000 * (1 / sfreq)))
+
+	# set time in case its present in file, aslo round to nearest ms
+	if 'timestamp_ux' in e4_df:
+		e4_df.time = pandas.to_datetime(e4_df['timestamp_ux'], exact=True, utc=True)
+		e4_df.time = e4_df.time.round('ms')
+	e4_df = e4_df.set_index(e4_df.time, drop=True)
+
+	# resample to expand missing windows
+	e4_df = e4_df.resample(sfreq_ms + "ms").ffill(limit=int(sfreq))
+	return e4_df, sfreq, sfreq_ms
+
+def read_e4_concat_to_raw(e4_raw_list):
+
+	# set maximum frequency we have in E4s
+	max_freq = 64
+	# initialize lists for loop
+	e4_df = pandas.DataFrame()
+	for i in e4_raw_list:
+		e4_temp, sfreq, _ = read_e4_raw_to_df(i)
+		e4_temp = e4_temp.drop(['timestamp_ux', 'time'], axis=1)
+		# resample the signal to the maximum with limits
+		if sfreq != max_freq:
+			lower_limit = max_freq/sfreq
+			max_sec = str((1/max_freq)*1000)
+			e4_temp = e4_temp.resample(max_sec + 'ms').ffill(limit=int(lower_limit))
+		if len(e4_df) == 0:
+			e4_df = e4_temp
+		else:
+			e4_df = e4_df.merge(e4_temp, left_index=True, right_index=True)
+
+	# create header items for mne object generation
+	start_time = e4_df.index[0]
+	e4_array = e4_df.to_numpy().transpose()
+	e4_header = list(e4_df.columns)
+	# convert to mne object
+	mne_info = mne.create_info(ch_names=e4_header, sfreq=max_freq, ch_types="misc")
+	mne_obj = mne.io.RawArray(e4_array, mne_info, first_samp=0)
+	# set start time and return an mne object
+	mne_obj = mne_obj.set_meas_date(start_time.timestamp())
+	return mne_obj
+
+# convert e4 data to single mne raw file (flattened)
+def read_e4_to_raw(filepath, resample_Hz=64, interpolate_method='ffill'):
+	"""
+	Read in Empatica files to raw format with resampling for different channels
+	Parameters:
+	----------
+	filepath: str
+		Path to zip file containing E4 Data. Must be original and not concatenated file.
+	resample: int
+		Resampling frequency
+	interpolate_method: str
+		Method with which interpolation is done
+	"""
+	mne_raw_list = read_e4_to_raw_list(filepath)
+	mne_raw_list_new = []
+	mne_raw_df = pandas.DataFrame()
+	if 'full' not in filepath:
+		for i, raw in enumerate(mne_raw_list):
+			if raw != "unretrieved":
+				mne_raw_list_new.append(raw.resample(resample_Hz))
+				mne_temp_df = mne_raw_list_new[i].to_data_frame(time_format="datetime")
+				mne_temp_df = mne_temp_df.set_index('time', drop=True)
+				mne_raw_df = pandas.concat([mne_raw_df, mne_temp_df], axis=1)
+		# append the raws together
+		mne_raw_info = mne.create_info(ch_names=list(mne_raw_df.columns), sfreq=resample_Hz)
+		mne_raw_df = mne_raw_df.interpolate(method=interpolate_method)
+		mne_raw_np = mne_raw_df.to_numpy().transpose()
+		raw = mne.io.RawArray(mne_raw_np, mne_raw_info)
+		raw.set_meas_date(mne_raw_list[0].info['meas_date'])
+	else:
+		raw = read_e4_concat_to_raw(mne_raw_list)
+
+	return raw
+
 
 
 def e4_plot(emp_file):
