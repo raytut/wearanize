@@ -76,9 +76,9 @@ import xlrd
 from math import log, e
 
 from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped, raw_zmax_data_quality
-from e4_converter import read_e4_to_raw_list, read_e4_to_raw, e4_raw_to_df, e4_concatenate, e4_concatente_par
+from e4_converter import read_e4_to_raw_list, read_e4_to_raw, read_e4_raw_to_df, e4_concatenate, e4_concatente_par, read_e4_concat_to_raw
 import apl_converter as apl
-from apl_converter import apl_to_raw, apl_window_to_raw
+from apl_converter import read_apl_to_raw, apl_window_to_raw
 
 # constants #
 FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT = "_merged"
@@ -245,8 +245,8 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 		raw = read_edf_to_raw_zipped(filepath, format='edf')
 	elif wearable == 'emp':
 		raw = read_e4_to_raw_list(filepath)
-	elif wearable == 'apl': #TODO: Add apl files
-		warnings.warn("ACTIVPAL Files too large for efficient syncing")
+	elif wearable == 'apl':
+		raw = read_apl_to_raw(filepath)
 		pass
 	 
 	# convert to dateframe and subset time window    
@@ -263,6 +263,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 			# check all files in directory to match window
 			if wearables == 'zmx':
 				file_list = find_wearable_files(sub_path, wearable="zmax")
+				file_list = [x for x in file_list if ('merge') in x]
 				channel_df = pandas.DataFrame()
 				for file in file_list:
 					try:
@@ -274,7 +275,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 							channel_df = pandas.concat([channel_df,raw_channel], axis=1)
 					except:
 						pass
-				raw_df = pandas.concat([raw_df,channel_df], axis=1)
+				raw_df = raw_df.merge(channel_df, how='left', left_index=True, right_index=True)
 				
 			# Empatica
 			elif wearables == "emp":  
@@ -288,10 +289,10 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 							raw_channel = raw_channel[(raw_channel.time > start_date) & (raw_channel.time < end_date)]
 							if raw_channel.size != 0: 
 								raw_channel = raw_channel.set_index('time', drop=True)
-								channel_df = pandas.concat([channel_df,raw_channel], axis=1)
+								channel_df = pandas.concat([channel_df, raw_channel], sort=False)
 						except:
 							pass
-				raw_df = pandas.concat([raw_df,channel_df], axis=1)
+				raw_df = raw_df.merge(channel_df, left_index=True, right_index=True)
 				
 			elif wearables == 'apl':
 				apl_raw = apl_window_to_raw(filepath, wearable, buffer_seconds=offset_seconds)
@@ -969,7 +970,7 @@ def features_eda_from_raw(raw, channel_name, device='emp', window=10, features=[
 						  app_endtime=None, app_window='before'):
 	# convert to data frame with time index
 	if device == 'emp':
-		eda, sfreq, sfreq_ms = e4_raw_to_df(raw)
+		eda, sfreq, sfreq_ms = read_e4_raw_to_df(raw)
 	else:
 		signal = raw.to_data_frame(time_format='datetime')
 		sfreq = raw.info['sfreq']
@@ -1070,7 +1071,7 @@ def features_hr_from_raw(raw, channel_name, device='emp', window=10, app_data=No
 
 	# convert to data frame with time index
 	if device == 'emp':
-		hr, sfreq, sfreq_ms = e4_raw_to_df(raw)
+		hr, sfreq, sfreq_ms = read_e4_raw_to_df(raw)
 	else:
 		signal = raw.to_data_frame(time_format='datetime')
 		sfreq = raw.info['sfreq']
@@ -1126,8 +1127,8 @@ def features_hr_from_raw(raw, channel_name, device='emp', window=10, app_data=No
 def features_temp_from_raw(raw, channel_name, device='emp', window=10, app_data=None, app_starttime=None, app_endtime=None, app_window='before'):
 
 	# convert to data frame with time index
-	if device is 'emp':
-		signal, sfreq, sfreq_ms = e4_raw_to_df(raw)
+	if device == 'emp':
+		signal, sfreq, sfreq_ms = read_e4_raw_to_df(raw)
 	else:
 		signal = raw.to_data_frame(time_format='datetime')
 		sfreq = raw.info['sfreq']
@@ -1191,7 +1192,7 @@ def features_acc_from_raw(raw, channel_name_x, channel_name_y, channel_name_z, d
 						  app_starttime=None, app_endtime=None, app_window='before'):
 	# convert to data frame with time index
 	if device == 'emp':
-		signal, sfreq, sfreq_ms = e4_raw_to_df(raw)
+		signal, sfreq, sfreq_ms = read_e4_raw_to_df(raw)
 	else:
 		signal = raw.to_data_frame(time_format='datetime')
 		sfreq = raw.info['sfreq']
