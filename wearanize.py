@@ -60,6 +60,9 @@ import pyphysio as ph
 import heartpy as hp
 import rapidhrv as rhv
 import sys
+
+import apl_converter
+
 if sys.version_info >= (3, 6):
 	import zipfile
 	from zipfile import ZipFile
@@ -228,7 +231,7 @@ def window_selector(raw):
 # =============================================================================
 # 
 # =============================================================================
-def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable='zmx', resample_hz=None, offset_seconds=0.0): 
+def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable='zmx', fetch=['apl', 'emp'], resample_hz=None, offset_seconds=0.0):
 	"""get raw data file according to time stamps
 	"""
 	# parse file parts
@@ -256,7 +259,7 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 	
 	#list all files and search all the relevant files that fall within these time limits
 	print("Searching all wearable files in directory...")
-	for wearables in ['zmx', 'apl', 'emp']: 
+	for wearables in fetch:
 		# Skip if we have the same modality
 		if wearables != wearable:
 			
@@ -308,6 +311,48 @@ def get_raw_by_date_and_time(filepath,  datetime_ts, duration_seconds,  wearable
 		raw_full=uneven_raw_resample(raw_full, resample_hz)
 
 	return raw_full
+
+
+def merge_emp_to_apl_raw(path_to_week):
+	"""
+	Parameters
+	----------
+	path_to_week: str
+	String containing path to directory containig week info
+	Returns
+	-------
+	mne_obj: mne.RawArray
+	An mne raw object combining activpal and empatica data based on time stamps
+	"""
+
+	# files
+	emp_file = glob.glob(path_to_week + os.sep + "wrb/*emp_full.zip")[0]
+	apl_file = glob.glob(path_to_week + os.sep + "wrb/*_events.csv")[0]
+
+	# e4 to raw
+	emp_raw = wearanize.read_e4_to_raw(emp_file)
+	emp_df = emp_raw.to_data_frame(time_format='datetime')
+	emp_df.set_index('time', inplace=True, drop=True)
+
+	# apl event to raw
+	apl_raw = wearanize.apl_converter.read_apl_event_to_raw(apl_file, resample_Hz=64)
+	apl_df = apl_raw.to_data_frame(time_format='datetime')
+	apl_df.set_index('time', inplace=True, drop=True)
+
+	# merge and convert to mne raw
+	merge_df = apl_df.merge(emp_df, left_index = True, right_index =True, how='outer')
+	# mne info
+	mne_start = merge_df.index[0]
+	mne_head = list(merge_df.columns)
+	mne_np = merge_df.to_numpy().transpose()
+	# convert to raw
+	mne_info = mne.create_info(ch_names=mne_head, sfreq=64, ch_types="misc")
+	mne_obj = mne.io.RawArray(mne_np, mne_info, first_samp=0)
+
+	# set start time and return an mne object
+	mne_obj = mne_obj.set_meas_date(mne_start.timestamp())
+
+	return mne_obj
 
 
 def uneven_raw_resample(raw, resample_hz, interpolation_method='pad'):
@@ -1207,10 +1252,10 @@ def features_acc_from_raw(raw, channel_name_x, channel_name_y, channel_name_z, d
 																app_data=app_data, app_starttime=app_starttime,
 																app_endtime=app_endtime, app_window=app_window,
 																window=window)
-		signal_chunks_y, _ = chunk_signal_at_app(signal=signal, channel_name=channel_name_x, app_data=app_data,
+		signal_chunks_y, _ = chunk_signal_at_app(signal=signal, channel_name=channel_name_y, app_data=app_data,
 												 app_starttime=app_starttime, app_endtime=app_endtime,
 												 app_window=app_window, window=window)
-		signal_chunks_z, _ = chunk_signal_at_app(signal=signal, channel_name=channel_name_x, app_data=app_data,
+		signal_chunks_z, _ = chunk_signal_at_app(signal=signal, channel_name=channel_name_z, app_data=app_data,
 												 app_starttime=app_starttime, app_endtime=app_endtime,
 												 app_window=app_window, window=window)
 
@@ -1307,8 +1352,8 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 	Estimate features from activpal events file
 	Parameters
 	----------
-	apl_events: str or pandas.DataFrame
-		Path to acitvpal file ending with "tagged_events.csv" or a pandas data frame
+	apl_events: str or raw
+		Path to acitvpal file ending with "tagged_events.csv" or an already converted raw file
 	window: int
 		Window (in minutes) to use for signal chunking. Features estimated from window.
 	bout_duration: int
@@ -1328,24 +1373,14 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 	"""
 	# read data frame
 	if type(apl_events) == str:
-		df_apl = pandas.read_csv(apl_events)
-	else:
-		df_apl = apl_events
-	# convert timestamps
-	if type(df_apl.APDatetimevar[1]) != pandas._libs.tslibs.timestamps.Timestamp:
-		df_apl.APDatetimevar = df_apl.APDatetimevar.apply(xlrd.xldate_as_datetime, convert_dtype=True, datemode=0)
+		df_apl = apl_converter.read_apl_event_to_raw(apl_events)
 
-	# resample dataframe to 1HZ
-	df_apl = df_apl.set_index(df_apl.APDatetimevar)
-	df_apl.index = df_apl.index.tz_localize(tz='Europe/Amsterdam')
-	df_apl = df_apl.resample('1S').ffill()
-	df_apl = df_apl.bfill()
-	df_apl['time'] = df_apl.index
-	sfreq = 1
+	df_apl = apl_events.to_data_frame(time_format='datetime')
+	sfreq = df_apl.info['sfreq']
 
 	if app_data == None:
-		df_apl = df_apl.APActivity_code
 		signal_chunks_list = chunk_signal(df_apl, sfreq, window)
+		time_chunks_list = chunk_signal(df_apl.index, sfreq, window)
 	else:
 		signal_chunks_list, time_chunks_list = chunk_signal_at_app(df_apl, channel_name='APActivity_code',
 																   app_data=app_data, app_starttime=app_starttime,
@@ -1366,18 +1401,21 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 
 		# estimate percent in:
 		# Activity codes: 0=sedentary 1=standing 2=stepping 2.1=cycling 3.1=primary lying, 3.2=secondary lying 4=non-wear 5=travelling
-		code_0 = len(signal_chunk[signal_chunk == 0]) / len(signal_chunk) * 100  # sedentary
-		code_1 = len(signal_chunk[signal_chunk == 1]) / len(signal_chunk) * 100  # standing
-		code_2 = len(signal_chunk[signal_chunk == 2]) / len(signal_chunk) * 100  # stepping
-		code_2_1 = len(signal_chunk[signal_chunk == 2.1]) / len(signal_chunk) * 100  # cycling
-		code_3 = len(signal_chunk[signal_chunk == 3]) / len(signal_chunk) * 100  # laying
-		code_3_1 = len(signal_chunk[signal_chunk == 3.1]) / len(signal_chunk) * 100  # laying prim
-		code_3_2 = len(signal_chunk[signal_chunk == 3.2]) / len(signal_chunk) * 100  # laying second
-		code_4 = len(signal_chunk[signal_chunk == 4]) / len(signal_chunk) * 100  # non-wear
-		code_5 = len(signal_chunk[signal_chunk == 5]) / len(signal_chunk) * 100  # travelling
+		code_0 = len(signal_chunk[signal_chunk['APActivity_code'] == 0]) / len(signal_chunk) * 100  # sedentary
+		code_1 = len(signal_chunk[signal_chunk['APActivity_code'] == 1]) / len(signal_chunk) * 100  # standing
+		code_2 = len(signal_chunk[signal_chunk['APActivity_code'] == 2]) / len(signal_chunk) * 100  # stepping
+		code_2_1 = len(signal_chunk[signal_chunk['APActivity_code'] == 2.1]) / len(signal_chunk) * 100  # cycling
+		code_3 = len(signal_chunk[signal_chunk['APActivity_code'] == 3]) / len(signal_chunk) * 100  # laying
+		code_3_1 = len(signal_chunk[signal_chunk['APActivity_code'] == 3.1]) / len(signal_chunk) * 100  # laying prim
+		code_3_2 = len(signal_chunk[signal_chunk['APActivity_code'] == 3.2]) / len(signal_chunk) * 100  # laying second
+		code_4 = len(signal_chunk[signal_chunk['APActivity_code'] == 4]) / len(signal_chunk) * 100  # non-wear
+		code_5 = len(signal_chunk[signal_chunk['APActivity_code'] == 5]) / len(signal_chunk) * 100  # travelling
+
+		# step count
+		wind_step_count = signal_chunk.APCumulativeStepCount[-1] - signal_chunk.APCumulativeStepCount[0]
 
 		# estimate bouts in window
-		if window > 20:
+		if window > bout_duration:
 			j = 0
 			bout_duration_s = bout_duration * 60
 			while (j + (bout_duration_s) <= len(signal_chunk)):
@@ -1390,12 +1428,12 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 		else:
 			movement_bout = 'window too short'
 
-		time_list.extend([chunk_start] * 10)
+		time_list.extend([chunk_start] * 12)
 		header_list.extend(
-			['apl_per_sedentary', 'apl_per_standing', 'apl_per_stepping', 'apl_per_cycling', 'apl_per_laying',
+			['apl_window','step_count', 'apl_per_sedentary', 'apl_per_standing', 'apl_per_stepping', 'apl_per_cycling', 'apl_per_laying',
 			 'apl_per_lay_prim', 'apl_per_lay_second', 'apl_per_nonwear', 'apl_per_travel', 'apl_bout_yn'])
 		feature_list.extend(
-			[code_0, code_1, code_2, code_2_1, code_3, code_3_1, code_3_2, code_4, code_5, movement_bout])
+			[window, wind_step_count, code_0, code_1, code_2, code_2_1, code_3, code_3_1, code_3_2, code_4, code_5, movement_bout])
 
 	# convert to df for output
 	apl_df_full = {'time': time_list, 'feature': header_list, 'apl': feature_list}
