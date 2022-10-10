@@ -330,12 +330,12 @@ def merge_emp_to_apl_raw(path_to_week):
 	apl_file = glob.glob(path_to_week + os.sep + "wrb/*_events.csv")[0]
 
 	# e4 to raw
-	emp_raw = wearanize.read_e4_to_raw(emp_file)
+	emp_raw = read_e4_to_raw(emp_file)
 	emp_df = emp_raw.to_data_frame(time_format='datetime')
 	emp_df.set_index('time', inplace=True, drop=True)
 
 	# apl event to raw
-	apl_raw = wearanize.apl_converter.read_apl_event_to_raw(apl_file, resample_Hz=64)
+	apl_raw = apl_converter.read_apl_event_to_raw(apl_file, resample_Hz=64)
 	apl_df = apl_raw.to_data_frame(time_format='datetime')
 	apl_df.set_index('time', inplace=True, drop=True)
 
@@ -1001,7 +1001,6 @@ def chunk_signal_at_app(signal, channel_name, app_data, app_starttime, app_endti
 
 		# subset temp dataframe from window and add to a list
 		signal_temp = signal[(signal['time'] > t1) & (signal['time'] < t2)]
-		signal_temp = signal_temp[channel_name]
 		signal_chunks.extend([signal_temp])
 		time_chunks.extend([start_time])
 
@@ -1374,9 +1373,9 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 	# read data frame
 	if type(apl_events) == str:
 		df_apl = apl_converter.read_apl_event_to_raw(apl_events)
-
 	df_apl = apl_events.to_data_frame(time_format='datetime')
-	sfreq = df_apl.info['sfreq']
+	df_apl.set_index('time', inplace=True)
+	sfreq = apl_events.info['sfreq']
 
 	if app_data == None:
 		signal_chunks_list = chunk_signal(df_apl, sfreq, window)
@@ -1395,9 +1394,12 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 
 		# log sample start time
 		if app_data == None:
-			chunk_start = signal_chunk.index[0]
+			chunk_start =  time_chunks_list[i][0]
 		else:
 			chunk_start = time_chunks_list[i]
+
+		# resample to 1 HZ
+		signal_chunk = signal_chunk.resample('1S').mean()
 
 		# estimate percent in:
 		# Activity codes: 0=sedentary 1=standing 2=stepping 2.1=cycling 3.1=primary lying, 3.2=secondary lying 4=non-wear 5=travelling
@@ -1412,14 +1414,15 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 		code_5 = len(signal_chunk[signal_chunk['APActivity_code'] == 5]) / len(signal_chunk) * 100  # travelling
 
 		# step count
-		wind_step_count = signal_chunk.APCumulativeStepCount[-1] - signal_chunk.APCumulativeStepCount[0]
+		wind_step_count = signal_chunk.APCumulativeStepCount[len(signal_chunk)-1] - signal_chunk.APCumulativeStepCount[0]
 
 		# estimate bouts in window
+		movement_bout = 'nan'
 		if window > bout_duration:
 			j = 0
-			bout_duration_s = bout_duration * 60
+			bout_duration_s = int(bout_duration * 60 )
 			while (j + (bout_duration_s) <= len(signal_chunk)):
-				bout = signal_chunk[j:j + bout_duration_s]
+				bout = signal_chunk['APActivity_code'][j:(j + bout_duration_s)]
 				if len(bout.unique() == 1) and (round(bout.unique()[0]) == 2):
 					movement_bout = 'yes'
 				else:
