@@ -1001,6 +1001,8 @@ def chunk_signal_at_app(signal, channel_name, app_data, app_starttime, app_endti
 
 		# subset temp dataframe from window and add to a list
 		signal_temp = signal[(signal['time'] > t1) & (signal['time'] < t2)]
+		if channel_name != 'APActivity_code':
+			signal_temp = signal_temp[channel_name]
 		signal_chunks.extend([signal_temp])
 		time_chunks.extend([start_time])
 
