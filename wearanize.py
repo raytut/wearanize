@@ -81,7 +81,7 @@ from math import log, e
 from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped, raw_zmax_data_quality
 from e4_converter import read_e4_to_raw_list, read_e4_to_raw, read_e4_raw_to_df, e4_concatenate, e4_concatente_par, read_e4_concat_to_raw
 import apl_converter as apl
-from apl_converter import read_apl_to_raw, apl_window_to_raw
+from apl_converter import read_apl_to_raw, apl_window_to_raw, read_apl_event_to_raw
 
 # constants #
 FILE_EXTENSION_WEARABLE_ZMAX_REEXPORT = "_merged"
@@ -1376,7 +1376,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 	if type(apl_events) == str:
 		df_apl = apl_converter.read_apl_event_to_raw(apl_events)
 	df_apl = apl_events.to_data_frame(time_format='datetime')
-	df_apl.set_index('time', inplace=True)
+	df_apl = df_apl.set_index(df_apl.time, drop=True)
 	sfreq = apl_events.info['sfreq']
 
 	if app_data == None:
@@ -1448,13 +1448,129 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 	return apl_df_full
 
 
+
+def sub_feature_extraction(sub_path, week, devices, channels, window=10, apl_window=None, apl_bout=5, app_data=False, app_starttime='EMA_timestamp__start_beep_', app_endtime='EMA_timestamp_end_beep_', app_window='before', output=False):
+	"""
+	Given a subject, and a week, implement feature extraction from sepcificed devices.
+	Parameters
+	----------
+	sub_path: str
+	Path to subject folder
+	week: str
+	Specification of which week to look into. Can be any of 'pre-1', 'pre-2' or 'pre-3'
+	devices: list
+	List containing devices to extract features from. Currently limited to 'apl' and 'emp'
+	channels: list
+	List containing channles to investigate for emp data. Future scripts will also include the Activpal ACC files.
+	window: int
+	Window in minutes to use for feature extraction
+	apl_window: int
+	Optional. whether to use a different window for apl data
+	apl_bout: int
+	Minutes of continuous activity to be considered as an activity bout for apl data
+	app_data: bool
+	Whether to use app data for feature extraction windoes. Requires specfication of other app variables
+	app_starttime: str
+	String containing name of column with app start time
+	app_endtime: str
+	String containing name of column with app end time
+	app_window: str
+	Defines search window around app data. Any of 'before', 'after', 'around'.
+	output: bool
+	If true, writes out CSV file using naming conventions of input file.
+	Returns
+	-------
+	output: pandas.DataFrame or csv file
+	"""
+	# set directory
+	sub_week = sub_path + os.sep + week
+
+	# get app file if specified
+	if app_data == True:
+		app_file = glob.glob(sub_week + os.sep + 'app' +  os.sep + "*ema.csv")[0]
+	else:
+		app_file = None
+	# if both empatica + apl
+	if ('emp' in devices) & ('apl' in devices):
+		raw_wrb = merge_emp_to_apl_raw(sub_week)
+	# otherwise only select one
+	else:
+		if 'emp' in devices:
+			# find e4 devices file + convert to raw
+			files = find_wearable_files(sub_week, wearable='empatica')
+			file = [x for x in files if ('full') in x]
+			file = sub_week + os.sep + file[0]
+			if os.path.isfile(file):
+				raw_wrb = read_e4_to_raw(file)
+			else:
+				warnings.warn('No concatenated E4 file found!')
+		if 'apl' in devices:
+			# find apl date and convert to raw
+			files = find_wearable_files(sub_week, wearable='apl')
+			file = [x for x in files if ('events') in x]
+			file = sub_week + os.sep + file[0]
+			if os.path.isfile(file):
+				raw_wrb = read_apl_event_to_raw(file)
+			else:
+				warnings.warn('No Activpal events file found!')
+
+
+	# extract features to list
+	if 'emp' in devices:
+		emp_feats = list()
+		if 'hr' in channels:
+			emp_feats.extend([features_hr_from_raw(raw_wrb, channel_name='bvp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+		if 'eda' in channels:
+			emp_feats.extend([features_eda_from_raw(raw_wrb, channel_name='eda', delta=0.02,	window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+		if 'temp' in channels:
+			emp_feats.extend([features_temp_from_raw(raw_wrb, channel_name='temp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+		if 'acc' in channels:
+			emp_feats.extend([features_acc_from_raw(raw_wrb, channel_name_x='acc_x', channel_name_y='acc_y', channel_name_z='acc_z', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+		# merge list to single df
+		emp_df = emp_feats[0]
+		for i in range(1, len(emp_feats)):
+			emp_df = emp_df.merge(emp_feats[i], left_index=True, right_index=True)
+
+	# extract activpal features
+	if 'apl' in devices:
+		if apl_window == None:
+			apl_window = window
+		apl_df = features_apl_from_events(raw_wrb, window=apl_window, bout_duration=apl_bout, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)
+
+	# produce output
+	## which directory
+	if app_data == None:
+		type = 'wrb'
+	else:
+		type = 'app'
+
+	# If using both wearables
+	if ('emp' in devices) & ('apl' in devices):
+		out_df = pandas.merge(emp_df, apl_df, left_index=True, right_index=True, how='outer')
+		output_file = sub_week + os.sep + type + fileparts(sub_path)[1] + "_features_synch_" + str(window) + "min.csv"
+	# If using only one device
+	else:
+		# create output naming conventon
+		file_name = parse_wearable_filepath_info(file)['subject_file_id'] + '_features_' + devices[0] + '.csv'
+		output_file = (sub_week + os.sep + type + os.sep + file_name)
+		# what type wearable
+		if 'emp' in devices:
+			out_df = emp_df
+		elif 'apl' in devices:
+			out_df = apl_df
+
+	# save or return
+	if output == True:
+		out_df.to_csv(output_file, sep='\t')
+	else:
+		return out_df
+
 """
 	comment
 	TODO:
 	# delete and correct after no good duration (less than 10 min) or voltage too low at end of recording
 	# create annotation like what is wrong with the recording
 	# check the dates if this is a standard date and if the order needs to be adapted.
-	# PPG to HR signal
 	# cross correlation, on 10 min snippets with linear extrapolation.
 """
 if __name__ == "__main__":
