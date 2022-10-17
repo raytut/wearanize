@@ -79,7 +79,7 @@ import xlrd
 from math import log, e
 
 from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped, raw_zmax_data_quality
-from e4_converter import read_e4_to_raw_list, read_e4_to_raw, read_e4_raw_to_df, e4_concatenate, e4_concatente_par, read_e4_concat_to_raw
+from e4_converter import read_e4_to_raw_list, read_e4_to_raw, read_e4_raw_to_df, e4_concatenate, e4_concatenate_par, read_e4_concat_to_raw
 import apl_converter as apl
 from apl_converter import read_apl_to_raw, apl_window_to_raw, read_apl_event_to_raw
 
@@ -1427,18 +1427,20 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 				bout = signal_chunk['APActivity_code'][j:(j + bout_duration_s)]
 				if len(bout.unique() == 1) and (round(bout.unique()[0]) == 2):
 					movement_bout = 'yes'
+					bout_length = j + bout_duration_s
 				else:
 					movement_bout = 'no'
+					bout_length = 0
 				j = j + 1
 		else:
 			movement_bout = 'window too short'
 
-		time_list.extend([chunk_start] * 12)
+		time_list.extend([chunk_start] * 13)
 		header_list.extend(
 			['apl_window','step_count', 'apl_per_sedentary', 'apl_per_standing', 'apl_per_stepping', 'apl_per_cycling', 'apl_per_laying',
-			 'apl_per_lay_prim', 'apl_per_lay_second', 'apl_per_nonwear', 'apl_per_travel', 'apl_bout_yn'])
+			 'apl_per_lay_prim', 'apl_per_lay_second', 'apl_per_nonwear', 'apl_per_travel', 'apl_bout_yn', 'apl_bout_length'])
 		feature_list.extend(
-			[window, wind_step_count, code_0, code_1, code_2, code_2_1, code_3, code_3_1, code_3_2, code_4, code_5, movement_bout])
+			[window, wind_step_count, code_0, code_1, code_2, code_2_1, code_3, code_3_1, code_3_2, code_4, code_5, movement_bout, bout_length])
 
 	# convert to df for output
 	apl_df_full = {'time': time_list, 'feature': header_list, 'apl': feature_list}
@@ -1547,11 +1549,11 @@ def sub_feature_extraction(sub_path, week, devices, channels, window=10, apl_win
 	# If using both wearables
 	if ('emp' in devices) & ('apl' in devices):
 		out_df = pandas.merge(emp_df, apl_df, left_index=True, right_index=True, how='outer')
-		output_file = sub_week + os.sep + type + fileparts(sub_path)[1] + "_features_synch_" + str(window) + "min.csv"
+		output_file = sub_week + os.sep + type + os.sep +  fileparts(sub_path)[1] + "_features_emp_apl_" + str(window) + "min.csv"
 	# If using only one device
 	else:
 		# create output naming conventon
-		file_name = parse_wearable_filepath_info(file)['subject_file_id'] + '_features_' + devices[0] + '.csv'
+		file_name = parse_wearable_filepath_info(file)['subject_file_id'] + '_features_' + devices[0]  +"_"+ str(window) + "min.csv"
 		output_file = (sub_week + os.sep + type + os.sep + file_name)
 		# what type wearable
 		if 'emp' in devices:

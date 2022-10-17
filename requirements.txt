@@ -10,3 +10,4 @@ rapidhrv>=0.2.4
 plotnine>=0.9.0
 rapidhrv>=0.1.5
 xlrd
+pyphysio>=2.4.3

@@ -30,7 +30,7 @@ def fileparts(filepath):
 
 
 # temporally concatenate e4 data and save as separate zip file in same directory
-def e4_concatenate(project_folder, sub_nr, resampling=None):
+def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 	"""
 	Parameters
 	----------
@@ -61,214 +61,219 @@ def e4_concatenate(project_folder, sub_nr, resampling=None):
 		# Path with E4 files. Only run if the files exist
 		filepath = (str(session_type))
 		if os.path.isdir(filepath) == True:
+			# check if file non existant or overwrite true
+			if (os.path.isfile(glob.glob(filepath + os.sep + "*emp_full.zip")[0]) == False) or ( overwrite == True):
 
-			# Get all directories with E4 sessions for subject, merge directory from the list
-			dir_list = glob.glob(filepath + "/*wrb_emp_*.zip")
-			# Only keep the empatica folders, drop the folder with concatenated data
-			dir_list = [x for x in dir_list if "wrb_emp" in x]
-			dir_list = [x for x in dir_list if "wrb_emp_full" not in x]
+				# Get all directories with E4 sessions for subject, merge directory from the list
+				dir_list = glob.glob(filepath + "/*wrb_emp_*.zip")
+				# Only keep the empatica folders, drop the folder with concatenated data
+				dir_list = [x for x in dir_list if "wrb_emp" in x]
+				dir_list = [x for x in dir_list if "wrb_emp_full" not in x]
 
-			# Only Run if there are recordings
-			if len(dir_list) > 0:
+				# Only Run if there are recordings
+				if len(dir_list) > 0:
 
-				# Check if merge directory (for output) exists, if not then make it
-				try:
-					# Make a directory that matches the HBS format
-					conc_file = dir_list[0][:-7]
-					conc_file = conc_file + '_full'
-					os.makedirs(str(conc_file))
-				except FileExistsError:
-					pass
+					# Check if merge directory (for output) exists, if not then make it
+					try:
+						# Make a directory that matches the HBS format
+						conc_file = dir_list[0][:-7]
+						conc_file = conc_file + '_full'
+						os.makedirs(str(conc_file))
+					except FileExistsError:
+						pass
 
-				# Set E4 data types for loop
-				data_types = ['EDA.csv', 'TEMP.csv', 'IBI.csv', 'BVP.csv', 'HR.csv', 'ACC.csv']
+					# Set E4 data types for loop
+					data_types = ['EDA.csv', 'TEMP.csv', 'IBI.csv', 'BVP.csv', 'HR.csv', 'ACC.csv']
 
-				for data_type in data_types:
+					for data_type in data_types:
 
-					# Make Empty DF as master df for data type
-					full_df = pandas.DataFrame()
+						# Make Empty DF as master df for data type
+						full_df = pandas.DataFrame()
 
-					# IBI is special case
-					if data_type == 'IBI.csv':
+						# IBI is special case
+						if data_type == 'IBI.csv':
 
-						# Select Directory from available list
-						for k in dir_list:
+							# Select Directory from available list
+							for k in dir_list:
 
-							# Select File for single session, import as df
-							zipdir = ZipFile(k)
+								# Select File for single session, import as df
+								zipdir = ZipFile(k)
 
-							# Sometime IBI files are empty, so try this instead
-							try:
+								# Sometime IBI files are empty, so try this instead
+								try:
+									df = pandas.read_csv(zipdir.open(data_type))
+									# Get time stamp
+									time = list(df)
+									time = time[0]
+									time = float(time)
+
+									# Rename time column to time, data to Data
+									df = df.rename(columns={df.columns[0]: "time"})
+									df = df.rename(columns={df.columns[1]: "data"})
+
+									# Add the starttime from time stamp (time) to the column+Convert to datetime
+									# time=dt.datetime.fromtimestamp(time)
+									df['time'] = time + df['time']
+									df['time'] = pandas.to_datetime(df['time'], unit='s')
+
+									# Append to master data frame the clear it for memory
+									full_df = pandas.concat([full_df, df])
+									full_df = full_df.sort_values(by='time')
+									df = pandas.DataFrame()
+								except:
+									pass
+
+							# Convert IBI to ms and sort by date:
+							full_df['data'] = full_df['data'] * 1000
+							full_df = full_df.sort_values('time', ascending=True)
+
+							# Set Output Names and direcotries, save as csv
+							fullout = (str(conc_file) + os.sep + str(data_type))
+							full_df.to_csv(str(fullout), sep='\t', index=True)
+							# Clear dataframes for more memory
+							full_df = pandas.DataFrame()
+
+						# ACC also special case, implement alternate combination method
+						elif data_type == 'ACC.csv':
+
+							# Select Directory, go through files
+							for k in dir_list:
+
+								# Select File, Import as df
+								zipdir = ZipFile(k)
 								df = pandas.read_csv(zipdir.open(data_type))
-								# Get time stamp
+
+								# Get time stamp (Used Later)
 								time = list(df)
 								time = time[0]
 								time = float(time)
 
-								# Rename time column to time, data to Data
-								df = df.rename(columns={df.columns[0]: "time"})
-								df = df.rename(columns={df.columns[1]: "data"})
+								# Get Sampling Frequency, convert to time
+								samp_freq = df.iloc[0, 0]
+								samp_freq = float(samp_freq)
+								samp_time = 1 / samp_freq
 
-								# Add the starttime from time stamp (time) to the column+Convert to datetime
-								# time=dt.datetime.fromtimestamp(time)
-								df['time'] = time + df['time']
-								df['time'] = pandas.to_datetime(df['time'], unit='s')
+								# Drop sampling rate from df (first row)
+								df = df.drop([0])
 
-								# Append to master data frame the clear it for memory
+								# Rename data columns to corresponding axes
+								df = df.rename(columns={df.columns[0]: "acc_x"})
+								df = df.rename(columns={df.columns[1]: "acc_y"})
+								df = df.rename(columns={df.columns[2]: "acc_z"})
+
+								# Make array of time stamps
+								df_len = len(df)
+								time = pandas.to_datetime(time, unit='s')
+								times = [time]
+								for i in range(1, (df_len)):
+									time = time + datetime.timedelta(seconds=samp_time)
+									times.append(time)
+
+								# Add time and data to dataframe
+								df['time'] = times
+
+								# Do resampling if specified
+								if resampling != None:
+									# If downsampling
+									if resampling > samp_time:
+										# Upsample data to 256HZ here to avoid large memory costs
+										df = df.resample((str(resampling) + "S"), on="time").mean()
+									# If Upsampling
+									else:
+										df = df.set_index("time")
+										df = df.resample((str(resampling) + "S")).ffill()
+
+								# Append to master data frame
 								full_df = pandas.concat([full_df, df])
-								full_df = full_df.sort_values(by='time')
 								df = pandas.DataFrame()
-							except:
-								pass
 
-						# Convert IBI to ms and sort by date:
-						full_df['data'] = full_df['data'] * 1000
-						full_df = full_df.sort_values('time', ascending=True)
+							# Sort master by date:
+							full_df = full_df.sort_values(by='time')
 
-						# Set Output Names and direcotries, save as csv
-						fullout = (str(conc_file) + os.sep + str(data_type))
-						full_df.to_csv(str(fullout), sep='\t', index=True)
-						# Clear dataframes for more memory
-						full_df = pandas.DataFrame()
+							# Set Output Names and direcotries, save as csv
+							fullout = (str(conc_file) + os.sep + str(data_type))
+							full_df.to_csv(str(fullout), sep='\t', index=True)
 
-					# ACC also special case, implement alternate combination method
-					elif data_type == 'ACC.csv':
+							# Clear dataframe and free memory
+							full_df = pandas.DataFrame()
 
-						# Select Directory, go through files
-						for k in dir_list:
+						# All other data structures:
+						else:
+							for k in dir_list:
 
-							# Select File, Import as df
-							zipdir = ZipFile(k)
-							df = pandas.read_csv(zipdir.open(data_type))
+								# Select File, Import as df
+								zipdir = ZipFile(k)
+								df = pandas.read_csv(zipdir.open(data_type))
 
-							# Get time stamp (Used Later)
-							time = list(df)
-							time = time[0]
-							time = float(time)
+								# Get start time+sampling frequency
+								start_time = list(df)
+								start_time = start_time[0]
+								samp_freq = df.iloc[0, 0]
 
-							# Get Sampling Frequency, convert to time
-							samp_freq = df.iloc[0, 0]
-							samp_freq = float(samp_freq)
-							samp_time = 1 / samp_freq
+								# Change samp freq to samp time
+								samp_time = 1 / samp_freq
 
-							# Drop sampling rate from df (first row)
-							df = df.drop([0])
+								# Drop sampling rate from df
+								df = df.drop([0])
 
-							# Rename data columns to corresponding axes
-							df = df.rename(columns={df.columns[0]: "acc_x"})
-							df = df.rename(columns={df.columns[1]: "acc_y"})
-							df = df.rename(columns={df.columns[2]: "acc_z"})
+								# Convert start time to date time
+								start_time = int(float(start_time))
+								start_time = pandas.to_datetime(start_time, unit='s')
 
-							# Make array of time stamps
-							df_len = len(df)
-							time = pandas.to_datetime(time, unit='s')
-							times = [time]
-							for i in range(1, (df_len)):
-								time = time + datetime.timedelta(seconds=samp_time)
-								times.append(time)
+								# Make array of time
+								file_len = len(df)
+								times = [start_time]
+								for i in range(1, (file_len)):
+									start_time = start_time + datetime.timedelta(seconds=samp_time)
+									times.append(start_time)
 
-							# Add time and data to dataframe
-							df['time'] = times
+								# Add time and data to dataframe
+								df['time'] = times
 
-							# Do resampling if specified
-							if resampling != None:
-								# If downsampling
-								if resampling > samp_time:
-									# Upsample data to 256HZ here to avoid large memory costs
-									df = df.resample((str(resampling) + "S"), on="time").mean()
-								# If Upsampling
-								else:
-									df = df.set_index("time")
-									df = df.resample((str(resampling) + "S")).ffill()
+								# Rename first column to Data
+								df = df.rename(columns={df.columns[0]: "data"})
 
-							# Append to master data frame
-							full_df = pandas.concat([full_df, df])
-							df = pandas.DataFrame()
+								# Do resampling if specified
+								if resampling != None:
+									# If downsampling
+									if resampling > samp_time:
+										# Upsample data to 256HZ here to avoid large memory costs
+										df = df.resample((str(resampling) + "S"), on="time").mean()
+									# If Upsampling
+									else:
+										df = df.set_index("time")
+										df = df.resample((str(resampling) + "S")).ffill()
 
-						# Sort master by date:
-						full_df = full_df.sort_values(by='time')
+								# Append to master data frame
+								full_df = pandas.concat([full_df, df])
+								df = pandas.DataFrame()
 
-						# Set Output Names and direcotries, save as csv
-						fullout = (str(conc_file) + os.sep + str(data_type))
-						full_df.to_csv(str(fullout), sep='\t', index=True)
+							# Sort by date:
+							full_df = full_df.sort_values(by='time')
 
-						# Clear dataframe and free memory
-						full_df = pandas.DataFrame()
+							# Set Output Names and direcotries, save as csv
+							fullout = (str(conc_file) + os.sep + str(data_type))
+							full_df.to_csv(str(fullout), sep='\t', index=True)
 
-					# All other data structures:
-					else:
-						for k in dir_list:
+							# Clear data frame and free up memory
+							full_df = pandas.DataFrame()
 
-							# Select File, Import as df
-							zipdir = ZipFile(k)
-							df = pandas.read_csv(zipdir.open(data_type))
+					# Zip file
+					zippath = (conc_file + ".zip")
+					with zipfile.ZipFile(zippath, mode='w') as zf:
+						len_dir_path = len(conc_file)
+						for root, _, files in os.walk(conc_file):
+							for file in files:
+								filepath = os.path.join(root, file)
+								zf.write(filepath, filepath[len_dir_path:], compress_type=zipfile.ZIP_DEFLATED,
+										 compresslevel=6)
+					shutil.rmtree(conc_file)
 
-							# Get start time+sampling frequency
-							start_time = list(df)
-							start_time = start_time[0]
-							samp_freq = df.iloc[0, 0]
+			# if files already made
+			else:
+				print("Overwrite set to false, skipping " + filepath + "...")
 
-							# Change samp freq to samp time
-							samp_time = 1 / samp_freq
-
-							# Drop sampling rate from df
-							df = df.drop([0])
-
-							# Convert start time to date time
-							start_time = int(float(start_time))
-							start_time = pandas.to_datetime(start_time, unit='s')
-
-							# Make array of time
-							file_len = len(df)
-							times = [start_time]
-							for i in range(1, (file_len)):
-								start_time = start_time + datetime.timedelta(seconds=samp_time)
-								times.append(start_time)
-
-							# Add time and data to dataframe
-							df['time'] = times
-
-							# Rename first column to Data
-							df = df.rename(columns={df.columns[0]: "data"})
-
-							# Do resampling if specified
-							if resampling != None:
-								# If downsampling
-								if resampling > samp_time:
-									# Upsample data to 256HZ here to avoid large memory costs
-									df = df.resample((str(resampling) + "S"), on="time").mean()
-								# If Upsampling
-								else:
-									df = df.set_index("time")
-									df = df.resample((str(resampling) + "S")).ffill()
-
-							# Append to master data frame
-							full_df = pandas.concat([full_df, df])
-							df = pandas.DataFrame()
-
-						# Sort by date:
-						full_df = full_df.sort_values(by='time')
-
-						# Set Output Names and direcotries, save as csv
-						fullout = (str(conc_file) + os.sep + str(data_type))
-						full_df.to_csv(str(fullout), sep='\t', index=True)
-
-						# Clear data frame and free up memory
-						full_df = pandas.DataFrame()
-
-				# Zip file
-				zippath = (conc_file + ".zip")
-				with zipfile.ZipFile(zippath, mode='w') as zf:
-					len_dir_path = len(conc_file)
-					for root, _, files in os.walk(conc_file):
-						for file in files:
-							filepath = os.path.join(root, file)
-							zf.write(filepath, filepath[len_dir_path:], compress_type=zipfile.ZIP_DEFLATED,
-									 compresslevel=6)
-				shutil.rmtree(conc_file)
-
-
-def e4_concatente_par(project_folder, verbose=0):
+def e4_concatenate_par(project_folder, verbose=0):
 	# Get list of subjects
 	sub_list = glob.glob(project_folder + os.sep + "sub-*")
 	Parallel(n_jobs=-2, verbose=verbose)(delayed(e4_concatenate)(project_folder, i) for i in sub_list)
