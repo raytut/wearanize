@@ -1451,7 +1451,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 
 
 
-def sub_feature_extraction(sub_path, week, devices, channels, window=10, apl_window=None, apl_bout=5, app_data=False, app_starttime='EMA_timestamp__start_beep_', app_endtime='EMA_timestamp_end_beep_', app_window='before', output=False):
+def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_window=None, apl_bout=5, app_data=False, app_starttime='EMA_timestamp__start_beep_', app_endtime='EMA_timestamp_end_beep_', app_window='before', output=False):
 	"""
 	Given a subject, and a week, implement feature extraction from sepcificed devices.
 	Parameters
@@ -1484,88 +1484,89 @@ def sub_feature_extraction(sub_path, week, devices, channels, window=10, apl_win
 	-------
 	output: pandas.DataFrame or csv file
 	"""
-	# set directory
-	sub_week = sub_path + os.sep + week
+	for week in weeks:
+		# set directory
+		sub_week = sub_path + os.sep + week
 
-	# get app file if specified
-	if app_data == True:
-		app_file = glob.glob(sub_week + os.sep + 'app' +  os.sep + "*ema.csv")[0]
-	else:
-		app_file = None
-	# if both empatica + apl
-	if ('emp' in devices) & ('apl' in devices):
-		raw_wrb = merge_emp_to_apl_raw(sub_week)
-	# otherwise only select one
-	else:
+		# get app file if specified
+		if app_data == True:
+			app_file = glob.glob(sub_week + os.sep + 'app' +  os.sep + "*ema.csv")[0]
+		else:
+			app_file = None
+		# if both empatica + apl
+		if ('emp' in devices) & ('apl' in devices):
+			raw_wrb = merge_emp_to_apl_raw(sub_week)
+		# otherwise only select one
+		else:
+			if 'emp' in devices:
+				# find e4 devices file + convert to raw
+				files = find_wearable_files(sub_week, wearable='empatica')
+				file = [x for x in files if ('full') in x]
+				file = sub_week + os.sep + file[0]
+				if os.path.isfile(file):
+					raw_wrb = read_e4_to_raw(file)
+				else:
+					warnings.warn('No concatenated E4 file found!')
+			if 'apl' in devices:
+				# find apl date and convert to raw
+				files = find_wearable_files(sub_week, wearable='apl')
+				file = [x for x in files if ('events') in x]
+				file = sub_week + os.sep + file[0]
+				if os.path.isfile(file):
+					raw_wrb = read_apl_event_to_raw(file)
+				else:
+					warnings.warn('No Activpal events file found!')
+
+
+		# extract features to list
 		if 'emp' in devices:
-			# find e4 devices file + convert to raw
-			files = find_wearable_files(sub_week, wearable='empatica')
-			file = [x for x in files if ('full') in x]
-			file = sub_week + os.sep + file[0]
-			if os.path.isfile(file):
-				raw_wrb = read_e4_to_raw(file)
-			else:
-				warnings.warn('No concatenated E4 file found!')
+			emp_feats = list()
+			if 'hr' in channels:
+				emp_feats.extend([features_hr_from_raw(raw_wrb, channel_name='bvp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+			if 'eda' in channels:
+				emp_feats.extend([features_eda_from_raw(raw_wrb, channel_name='eda', delta=0.02,	window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+			if 'temp' in channels:
+				emp_feats.extend([features_temp_from_raw(raw_wrb, channel_name='temp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+			if 'acc' in channels:
+				emp_feats.extend([features_acc_from_raw(raw_wrb, channel_name_x='acc_x', channel_name_y='acc_y', channel_name_z='acc_z', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+			# merge list to single df
+			emp_df = emp_feats[0]
+			for i in range(1, len(emp_feats)):
+				emp_df = emp_df.merge(emp_feats[i], left_index=True, right_index=True)
+
+		# extract activpal features
 		if 'apl' in devices:
-			# find apl date and convert to raw
-			files = find_wearable_files(sub_week, wearable='apl')
-			file = [x for x in files if ('events') in x]
-			file = sub_week + os.sep + file[0]
-			if os.path.isfile(file):
-				raw_wrb = read_apl_event_to_raw(file)
-			else:
-				warnings.warn('No Activpal events file found!')
+			if apl_window == None:
+				apl_window = window
+			apl_df = features_apl_from_events(raw_wrb, window=apl_window, bout_duration=apl_bout, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)
 
+		# produce output
+		## which directory
+		if app_data == False:
+			type = 'wrb'
+		else:
+			type = 'app'
 
-	# extract features to list
-	if 'emp' in devices:
-		emp_feats = list()
-		if 'hr' in channels:
-			emp_feats.extend([features_hr_from_raw(raw_wrb, channel_name='bvp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
-		if 'eda' in channels:
-			emp_feats.extend([features_eda_from_raw(raw_wrb, channel_name='eda', delta=0.02,	window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
-		if 'temp' in channels:
-			emp_feats.extend([features_temp_from_raw(raw_wrb, channel_name='temp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
-		if 'acc' in channels:
-			emp_feats.extend([features_acc_from_raw(raw_wrb, channel_name_x='acc_x', channel_name_y='acc_y', channel_name_z='acc_z', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
-		# merge list to single df
-		emp_df = emp_feats[0]
-		for i in range(1, len(emp_feats)):
-			emp_df = emp_df.merge(emp_feats[i], left_index=True, right_index=True)
+		# If using both wearables
+		if ('emp' in devices) & ('apl' in devices):
+			out_df = pandas.merge(emp_df, apl_df, left_index=True, right_index=True, how='outer')
+			output_file = sub_week + os.sep + type + os.sep +  fileparts(sub_path)[1] + "_features_emp_apl_" + str(window) + "min.csv"
+		# If using only one device
+		else:
+			# create output naming conventon
+			file_name = parse_wearable_filepath_info(file)['subject_file_id'] + '_features_' + devices[0]  +"_"+ str(window) + "min.csv"
+			output_file = (sub_week + os.sep + type + os.sep + file_name)
+			# what type wearable
+			if 'emp' in devices:
+				out_df = emp_df
+			elif 'apl' in devices:
+				out_df = apl_df
 
-	# extract activpal features
-	if 'apl' in devices:
-		if apl_window == None:
-			apl_window = window
-		apl_df = features_apl_from_events(raw_wrb, window=apl_window, bout_duration=apl_bout, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)
-
-	# produce output
-	## which directory
-	if app_data == None:
-		type = 'wrb'
-	else:
-		type = 'app'
-
-	# If using both wearables
-	if ('emp' in devices) & ('apl' in devices):
-		out_df = pandas.merge(emp_df, apl_df, left_index=True, right_index=True, how='outer')
-		output_file = sub_week + os.sep + type + os.sep +  fileparts(sub_path)[1] + "_features_emp_apl_" + str(window) + "min.csv"
-	# If using only one device
-	else:
-		# create output naming conventon
-		file_name = parse_wearable_filepath_info(file)['subject_file_id'] + '_features_' + devices[0]  +"_"+ str(window) + "min.csv"
-		output_file = (sub_week + os.sep + type + os.sep + file_name)
-		# what type wearable
-		if 'emp' in devices:
-			out_df = emp_df
-		elif 'apl' in devices:
-			out_df = apl_df
-
-	# save or return
-	if output == True:
-		out_df.to_csv(output_file, sep='\t')
-	else:
-		return out_df
+		# save or return
+		if output == True:
+			out_df.to_csv(output_file, sep='\t')
+		else:
+			return out_df
 
 """
 	comment
