@@ -273,10 +273,10 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 			else:
 				print("Overwrite set to false, skipping " + filepath + "...")
 
-def e4_concatenate_par(project_folder, verbose=0):
+def e4_concatenate_par(project_folder, verbose=0, overwrite=False):
 	# Get list of subjects
 	sub_list = glob.glob(project_folder + os.sep + "sub-*")
-	Parallel(n_jobs=-2, verbose=verbose)(delayed(e4_concatenate)(project_folder, i) for i in sub_list)
+	Parallel(n_jobs=-2, verbose=verbose)(delayed(e4_concatenate)(project_folder, i, overwrite=overwrite) for i in sub_list)
 
 
 # convert e4 data to mne.raw format
