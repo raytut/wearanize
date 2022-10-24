@@ -1374,7 +1374,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 	"""
 	# read data frame
 	if type(apl_events) == str:
-		df_apl = apl_converter.read_apl_event_to_raw(apl_events)
+		apl_events = apl_converter.read_apl_event_to_raw(apl_events)
 	df_apl = apl_events.to_data_frame(time_format='datetime')
 	df_apl = df_apl.set_index(df_apl.time, drop=True)
 	sfreq = apl_events.info['sfreq']
@@ -1389,6 +1389,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 																   window=window)
 
 	# extract features
+
 	time_list = list()
 	header_list = list()
 	feature_list = list()
@@ -1419,18 +1420,20 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 		wind_step_count = signal_chunk.APCumulativeStepCount[len(signal_chunk)-1] - signal_chunk.APCumulativeStepCount[0]
 
 		# estimate bouts in window
-		movement_bout = 'nan'
+		movement_bout = 'no'
+		bout_length = 0
 		if window > bout_duration:
 			j = 0
 			bout_duration_s = int(bout_duration * 60 )
 			while (j + (bout_duration_s) <= len(signal_chunk)):
 				bout = signal_chunk['APActivity_code'][j:(j + bout_duration_s)]
-				if len(bout.unique() == 1) and (round(bout.unique()[0]) == 2):
+				bout = bout.round()
+				if (len(bout.unique()) == 1) and (round(bout.unique()[0]) == 2):
 					movement_bout = 'yes'
-					bout_length = j + bout_duration_s
-				else:
-					movement_bout = 'no'
-					bout_length = 0
+					if bout_length == 0:
+						bout_length = bout_duration_s
+					else:
+						bout_length = 1 + bout_length
 				j = j + 1
 		else:
 			movement_bout = 'window too short'
@@ -1438,7 +1441,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 		time_list.extend([chunk_start] * 13)
 		header_list.extend(
 			['apl_window','step_count', 'apl_per_sedentary', 'apl_per_standing', 'apl_per_stepping', 'apl_per_cycling', 'apl_per_laying',
-			 'apl_per_lay_prim', 'apl_per_lay_second', 'apl_per_nonwear', 'apl_per_travel', 'apl_bout_yn', 'apl_bout_length'])
+			 'apl_per_lay_prim', 'apl_per_lay_second', 'apl_per_nonwear', 'apl_per_travel', 'apl_bout_yn', 'apl_bout_length_s'])
 		feature_list.extend(
 			[window, wind_step_count, code_0, code_1, code_2, code_2_1, code_3, code_3_1, code_3_2, code_4, code_5, movement_bout, bout_length])
 
@@ -1451,7 +1454,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 
 
 
-def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_window=None, apl_bout=5, app_data=False, app_starttime='EMA_timestamp__start_beep_', app_endtime='EMA_timestamp_end_beep_', app_window='before', output=False):
+def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_window=None, apl_bout=5, app_data=False, app_starttime='EMA_timestamp__start_beep_', app_endtime='EMA_timestamp_end_beep_', app_window='before', output=False, anon_datetime=True):
 	"""
 	Given a subject, and a week, implement feature extraction from sepcificed devices.
 	Parameters
@@ -1481,6 +1484,8 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 	output: bool
 	If true, writes out CSV file using naming conventions of input file.
 	Returns
+	dt_anon: bool
+	Anonymize datetimes in final output
 	-------
 	output: pandas.DataFrame or csv file
 	"""
@@ -1561,6 +1566,27 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 				out_df = emp_df
 			elif 'apl' in devices:
 				out_df = apl_df
+
+		# make random time for anonimization
+		random_time = numpy. random.randint(-5, 5, 1)[0]
+
+		# merge to app data if specified and randomize timestamps
+		if app_data == True:
+			app_df = app_to_long(app_file)
+			app_df = app_df.set_index(pandas.to_datetime(app_df['EMA_timestamp__start_beep_']))
+			out_df = pandas.merge(app_df, out_df, left_index=True, right_index=True, how='outer')
+
+			# anonymize app time stamps
+			if anon_datetime == True:
+				# round the seconds down, then keep the time
+				out_df['EMA_timestamp__start_beep_'] = pandas.to_datetime(out_df['EMA_timestamp__start_beep_']).dt.floor('T')
+				out_df['EMA_timestamp__start_beep_'] = out_df['EMA_timestamp__start_beep_']  + pandas.Timedelta(minutes=random_time)
+				out_df['EMA_timestamp_end_beep_'] = pandas.to_datetime(out_df['EMA_timestamp_end_beep_']).dt.floor('T')
+				out_df['EMA_timestamp_end_beep_'] =  out_df['EMA_timestamp_end_beep_'] + pandas.Timedelta(minutes=random_time)
+
+		# anonimize index
+		if anon_datetime == True:
+			out_df = out_df.set_index(pandas.to_datetime(out_df.index).floor('T') + pandas.Timedelta(minutes=random_time))
 
 		# save or return
 		if output == True:
