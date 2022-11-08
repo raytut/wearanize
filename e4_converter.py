@@ -60,9 +60,9 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 
 		# Path with E4 files. Only run if the files exist
 		filepath = (str(session_type))
-		if os.path.isdir(filepath) == True:
+		if os.path.isdir(filepath):
 			# check if file non existant or overwrite true
-			if (os.path.isfile(glob.glob(filepath + os.sep + "*emp_full.zip")[0]) == False) or ( overwrite == True):
+			if (len(glob.glob(filepath + os.sep + "*emp_full.zip"))==0) or ( overwrite == True):
 
 				# Get all directories with E4 sessions for subject, merge directory from the list
 				dir_list = glob.glob(filepath + "/*wrb_emp_*.zip")
