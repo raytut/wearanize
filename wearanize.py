@@ -77,7 +77,9 @@ import traceback
 import subprocess
 import xlrd 
 from math import log, e
+import gc
 
+# Import from embeded functions
 from zmax_edf_merge_converter import file_path, dir_path, dir_path_create, fileparts, zip_directory, safe_zip_dir_extract, safe_zip_dir_cleanup, raw_prolong_constant, read_edf_to_raw, edfWriteAnnotation, write_raw_to_edf, read_edf_to_raw_zipped, write_raw_to_edf_zipped, raw_zmax_data_quality
 from e4_converter import read_e4_to_raw_list, read_e4_to_raw, read_e4_raw_to_df, e4_concatenate, e4_concatenate_par, read_e4_concat_to_raw
 import apl_converter as apl
@@ -1489,20 +1491,58 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 	-------
 	output: pandas.DataFrame or csv file
 	"""
+	# make name for report file
+	start = datetime.datetime.now()
+	start = start.strftime("%Y_%m_%d_%H%M%S")
+	device_str = '_'.join(map(str, devices))
+	sub_id = fileparts(sub_path)[1]
+	# open report file
+	error_file = open(sub_path + os.sep + 'feature_report_' + device_str + '_' + start + '.csv', 'w+')
+	writer = csv.writer(error_file, delimiter=',', quoting=csv.QUOTE_NONNUMERIC)
+	writer.writerow(['sub_id', 'date_time','week','app_file', 'device', 'output_generation'])
+
 	for week in weeks:
 		# set directory
 		sub_week = sub_path + os.sep + week
 
 		# get app file if specified
 		if app_data == True:
-			app_file = glob.glob(sub_week + os.sep + 'app' +  os.sep + "*ema.csv")[0]
+			app_file = glob.glob(sub_week + os.sep + 'app' +  os.sep + "*ema.csv")
+			if len(app_file) == 0:
+				app_file_stat = 'missing'
+			else:
+				app_file_stat = 'found'
+				app_file = app_file[0]
 		else:
 			app_file = None
+			app_file_stat = 'n.v.t'
+
 		# if both empatica + apl
 		if ('emp' in devices) & ('apl' in devices):
-			raw_wrb = merge_emp_to_apl_raw(sub_week)
+			try:
+				raw_wrb = merge_emp_to_apl_raw(sub_week)
+				emp_file_stat = 'found'
+				apl_file_stat = 'found'
+			except:
+				warnings.warn('One or both the APL and EMP files are missing! Skipping...')
+				raw_wrb = None
+				# check which is missing for reporting
+				file_check = find_wearable_files(sub_week, wearable='empatica')
+				file_check = [x for x in file_check if ('full') in x]
+				if len(file_check)>0:
+					emp_file_stat = 'found'
+				else:
+					emp_file_stat = 'missing'
+				file_check = find_wearable_files(sub_week, wearable='apl')
+				file_check = [x for x in file_check if ('events') in x]
+				if len(file_check)>0:
+					apl_file_stat = 'found'
+				else:
+					apl_file_stat = 'missing'
+
 		# otherwise only select one
 		else:
+
 			if 'emp' in devices:
 				# find e4 devices file + convert to raw
 				files = find_wearable_files(sub_week, wearable='empatica')
@@ -1510,8 +1550,12 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 				file = sub_week + os.sep + file[0]
 				if os.path.isfile(file):
 					raw_wrb = read_e4_to_raw(file)
+					emp_file_stat = 'found'
 				else:
 					warnings.warn('No concatenated E4 file found!')
+					raw_wrb = None
+					emp_file_stat = 'missing'
+
 			if 'apl' in devices:
 				# find apl date and convert to raw
 				files = find_wearable_files(sub_week, wearable='apl')
@@ -1519,40 +1563,50 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 				file = sub_week + os.sep + file[0]
 				if os.path.isfile(file):
 					raw_wrb = read_apl_event_to_raw(file)
+					apl_file_stat = 'found'
 				else:
 					warnings.warn('No Activpal events file found!')
-
+					apl_file_stat = 'missing'
+					raw_wrb = None
 
 		# extract features to list
 		if 'emp' in devices:
-			emp_feats = list()
-			if 'hr' in channels:
-				emp_feats.extend([features_hr_from_raw(raw_wrb, channel_name='bvp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
-			if 'eda' in channels:
-				emp_feats.extend([features_eda_from_raw(raw_wrb, channel_name='eda', delta=0.02,	window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
-			if 'temp' in channels:
-				emp_feats.extend([features_temp_from_raw(raw_wrb, channel_name='temp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
-			if 'acc' in channels:
-				emp_feats.extend([features_acc_from_raw(raw_wrb, channel_name_x='acc_x', channel_name_y='acc_y', channel_name_z='acc_z', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
-			# merge list to single df
-			emp_df = emp_feats[0]
-			for i in range(1, len(emp_feats)):
-				emp_df = emp_df.merge(emp_feats[i], left_index=True, right_index=True)
+			try:
+				emp_feats = list()
+				if 'hr' in channels:
+					emp_feats.extend([features_hr_from_raw(raw_wrb, channel_name='bvp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+				if 'eda' in channels:
+					emp_feats.extend([features_eda_from_raw(raw_wrb, channel_name='eda', delta=0.02,	window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+				if 'temp' in channels:
+					emp_feats.extend([features_temp_from_raw(raw_wrb, channel_name='temp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+				if 'acc' in channels:
+					emp_feats.extend([features_acc_from_raw(raw_wrb, channel_name_x='acc_x', channel_name_y='acc_y', channel_name_z='acc_z', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
+				# merge list to single df
+				emp_df = emp_feats[0]
+				for i in range(1, len(emp_feats)):
+					emp_df = emp_df.merge(emp_feats[i], left_index=True, right_index=True)
+			except:
+				emp_df = pandas.DataFrame()
 
 		# extract activpal features
 		if 'apl' in devices:
 			if apl_window == None:
 				apl_window = window
-			apl_df = features_apl_from_events(raw_wrb, window=apl_window, bout_duration=apl_bout, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)
+			try:
+				apl_df = features_apl_from_events(raw_wrb, window=apl_window, bout_duration=apl_bout, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)
+			except:
+				apl_df = pandas.DataFrame()
 
-		# produce output
-		## which directory
+		# reset raw to reduce memory
+		raw_wrb = None
+
+		# check save directory
 		if app_data == False:
 			type = 'wrb'
 		else:
 			type = 'app'
 
-		# If using both wearables
+		# make output depending on what data is used
 		if ('emp' in devices) & ('apl' in devices):
 			out_df = pandas.merge(emp_df, apl_df, left_index=True, right_index=True, how='outer')
 			output_file = sub_week + os.sep + type + os.sep +  fileparts(sub_path)[1] + "_features_emp_apl_" + str(window) + "min.csv"
@@ -1571,7 +1625,8 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 		random_time = numpy. random.randint(-5, 5, 1)[0]
 
 		# merge to app data if specified and randomize timestamps
-		if app_data == True:
+		if (app_data == True) & (app_file_stat == 'found'):
+
 			app_df = app_to_long(app_file)
 			app_df = app_df.set_index(pandas.to_datetime(app_df['EMA_timestamp__start_beep_']))
 			out_df = pandas.merge(app_df, out_df, left_index=True, right_index=True, how='outer')
@@ -1583,6 +1638,9 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 				out_df['EMA_timestamp__start_beep_'] = out_df['EMA_timestamp__start_beep_']  + pandas.Timedelta(minutes=random_time)
 				out_df['EMA_timestamp_end_beep_'] = pandas.to_datetime(out_df['EMA_timestamp_end_beep_']).dt.floor('T')
 				out_df['EMA_timestamp_end_beep_'] =  out_df['EMA_timestamp_end_beep_'] + pandas.Timedelta(minutes=random_time)
+			extraction_stat = 'success'
+		elif (app_data==True) & (app_file_stat == 'missing'):
+				extraction_stat = 'missing app file'
 
 		# anonimize index
 		if anon_datetime == True:
@@ -1590,11 +1648,24 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 
 		# save or return
 		if output == True:
-			out_df.to_csv(output_file, sep='\t')
+			if len(out_df.index) > 0:
+				out_df.to_csv(output_file, sep='\t')
+				extraction_stat = 'success'
+			else:
+				extraction_stat = 'fail'
 		else:
 			return out_df
 
-"""
+		# write report file
+		if 'emp' in devices:
+			writer.writerow([sub_id, start, week, 'emp', app_file_stat, emp_file_stat, extraction_stat])
+		if 'apl' in devices:
+			writer.writerow([sub_id, start, week, 'apl', app_file_stat, apl_file_stat, extraction_stat])
+
+
+	# memory clean up
+	gc.collect()
+"""	
 	comment
 	TODO:
 	# delete and correct after no good duration (less than 10 min) or voltage too low at end of recording
