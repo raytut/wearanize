@@ -79,8 +79,8 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 						conc_file = dir_list[0][:-7]
 						conc_file = conc_file + '_full'
 						os.makedirs(str(conc_file))
-					except FileExistsError:
-						pass
+					except:
+						warnings.warn("Unable to create concatenated file " + conc_file)
 
 					# Set E4 data types for loop
 					data_types = ['EDA.csv', 'TEMP.csv', 'IBI.csv', 'BVP.csv', 'HR.csv', 'ACC.csv']
@@ -121,7 +121,8 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 									full_df = full_df.sort_values(by='time')
 									df = pandas.DataFrame()
 								except:
-									pass
+									warnings.warn("Unable to open " + data_type + " for directory " + k + ". Making empty dataframe for session instead...")
+									df = pandas.DataFrame(columns=["time", "data"])
 
 							# Convert IBI to ms and sort by date:
 							full_df['data'] = full_df['data'] * 1000
@@ -139,53 +140,57 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 							# Select Directory, go through files
 							for k in dir_list:
 
-								# Select File, Import as df
-								zipdir = ZipFile(k)
-								df = pandas.read_csv(zipdir.open(data_type))
+								try:
+									# Select File, Import as df
+									zipdir = ZipFile(k)
+									df = pandas.read_csv(zipdir.open(data_type))
 
-								# Get time stamp (Used Later)
-								time = list(df)
-								time = time[0]
-								time = float(time)
+									# Get time stamp (Used Later)
+									time = list(df)
+									time = time[0]
+									time = float(time)
 
-								# Get Sampling Frequency, convert to time
-								samp_freq = df.iloc[0, 0]
-								samp_freq = float(samp_freq)
-								samp_time = 1 / samp_freq
+									# Get Sampling Frequency, convert to time
+									samp_freq = df.iloc[0, 0]
+									samp_freq = float(samp_freq)
+									samp_time = 1 / samp_freq
 
-								# Drop sampling rate from df (first row)
-								df = df.drop([0])
+									# Drop sampling rate from df (first row)
+									df = df.drop([0])
 
-								# Rename data columns to corresponding axes
-								df = df.rename(columns={df.columns[0]: "acc_x"})
-								df = df.rename(columns={df.columns[1]: "acc_y"})
-								df = df.rename(columns={df.columns[2]: "acc_z"})
+									# Rename data columns to corresponding axes
+									df = df.rename(columns={df.columns[0]: "acc_x"})
+									df = df.rename(columns={df.columns[1]: "acc_y"})
+									df = df.rename(columns={df.columns[2]: "acc_z"})
 
-								# Make array of time stamps
-								df_len = len(df)
-								time = pandas.to_datetime(time, unit='s')
-								times = [time]
-								for i in range(1, (df_len)):
-									time = time + datetime.timedelta(seconds=samp_time)
-									times.append(time)
+									# Make array of time stamps
+									df_len = len(df)
+									time = pandas.to_datetime(time, unit='s')
+									times = [time]
+									for i in range(1, (df_len)):
+										time = time + datetime.timedelta(seconds=samp_time)
+										times.append(time)
 
-								# Add time and data to dataframe
-								df['time'] = times
+									# Add time and data to dataframe
+									df['time'] = times
 
-								# Do resampling if specified
-								if resampling != None:
-									# If downsampling
-									if resampling > samp_time:
-										# Upsample data to 256HZ here to avoid large memory costs
-										df = df.resample((str(resampling) + "S"), on="time").mean()
-									# If Upsampling
-									else:
-										df = df.set_index("time")
-										df = df.resample((str(resampling) + "S")).ffill()
+									# Do resampling if specified
+									if resampling != None:
+										# If downsampling
+										if resampling > samp_time:
+											# Upsample data to 256HZ here to avoid large memory costs
+											df = df.resample((str(resampling) + "S"), on="time").mean()
+										# If Upsampling
+										else:
+											df = df.set_index("time")
+											df = df.resample((str(resampling) + "S")).ffill()
 
-								# Append to master data frame
-								full_df = pandas.concat([full_df, df])
-								df = pandas.DataFrame()
+									# Append to master data frame
+									full_df = pandas.concat([full_df, df])
+									df = pandas.DataFrame()
+								except:
+									warnings.warn("Unable to open " + data_type + " for directory " + k + ". Making empty dataframe for session instead...")
+									df = pandas.DataFrame(columns=["time", "data"])
 
 							# Sort master by date:
 							full_df = full_df.sort_values(by='time')
@@ -201,52 +206,56 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 						else:
 							for k in dir_list:
 
-								# Select File, Import as df
-								zipdir = ZipFile(k)
-								df = pandas.read_csv(zipdir.open(data_type))
+								try:
+									# Select File, Import as df
+									zipdir = ZipFile(k)
+									df = pandas.read_csv(zipdir.open(data_type))
 
-								# Get start time+sampling frequency
-								start_time = list(df)
-								start_time = start_time[0]
-								samp_freq = df.iloc[0, 0]
+									# Get start time+sampling frequency
+									start_time = list(df)
+									start_time = start_time[0]
+									samp_freq = df.iloc[0, 0]
 
-								# Change samp freq to samp time
-								samp_time = 1 / samp_freq
+									# Change samp freq to samp time
+									samp_time = 1 / samp_freq
 
-								# Drop sampling rate from df
-								df = df.drop([0])
+									# Drop sampling rate from df
+									df = df.drop([0])
 
-								# Convert start time to date time
-								start_time = int(float(start_time))
-								start_time = pandas.to_datetime(start_time, unit='s')
+									# Convert start time to date time
+									start_time = int(float(start_time))
+									start_time = pandas.to_datetime(start_time, unit='s')
 
-								# Make array of time
-								file_len = len(df)
-								times = [start_time]
-								for i in range(1, (file_len)):
-									start_time = start_time + datetime.timedelta(seconds=samp_time)
-									times.append(start_time)
+									# Make array of time
+									file_len = len(df)
+									times = [start_time]
+									for i in range(1, (file_len)):
+										start_time = start_time + datetime.timedelta(seconds=samp_time)
+										times.append(start_time)
 
-								# Add time and data to dataframe
-								df['time'] = times
+									# Add time and data to dataframe
+									df['time'] = times
 
-								# Rename first column to Data
-								df = df.rename(columns={df.columns[0]: "data"})
+									# Rename first column to Data
+									df = df.rename(columns={df.columns[0]: "data"})
 
-								# Do resampling if specified
-								if resampling != None:
-									# If downsampling
-									if resampling > samp_time:
-										# Upsample data to 256HZ here to avoid large memory costs
-										df = df.resample((str(resampling) + "S"), on="time").mean()
-									# If Upsampling
-									else:
-										df = df.set_index("time")
-										df = df.resample((str(resampling) + "S")).ffill()
+									# Do resampling if specified
+									if resampling != None:
+										# If downsampling
+										if resampling > samp_time:
+											# Upsample data to 256HZ here to avoid large memory costs
+											df = df.resample((str(resampling) + "S"), on="time").mean()
+										# If Upsampling
+										else:
+											df = df.set_index("time")
+											df = df.resample((str(resampling) + "S")).ffill()
 
-								# Append to master data frame
-								full_df = pandas.concat([full_df, df])
-								df = pandas.DataFrame()
+									# Append to master data frame
+									full_df = pandas.concat([full_df, df])
+									df = pandas.DataFrame()
+								except:
+									warnings.warn("Unable to open " + data_type + " for directory " + k + ". Making empty dataframe for session instead...")
+									df = pandas.DataFrame(columns=["time", "data"])
 
 							# Sort by date:
 							full_df = full_df.sort_values(by='time')
@@ -431,7 +440,7 @@ def read_e4_concat_to_raw(e4_raw_list):
 	return mne_obj
 
 # convert e4 data to single mne raw file (flattened)
-def read_e4_to_raw(filepath, resample_Hz=64, interpolate_method='ffill'):
+def read_e4_to_raw(filepath, resample_Hz=32, interpolate_method='ffill'):
 	"""
 	Read in Empatica files to raw format with resampling for different channels
 	Parameters:
