@@ -8,6 +8,7 @@ import glob
 import pandas
 import datetime
 import zipfile
+import warnings
 from zipfile import ZipFile
 import mne
 import shutil
