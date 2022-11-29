@@ -1094,12 +1094,12 @@ def features_eda_from_raw(raw, channel_name, device='emp', window=10, features=[
 			feat_eda_max = ph.TimeDomain.Max()(eda_signal)
 			feat_eda_min = ph.TimeDomain.Min()(eda_signal)
 			# append to list
-			eda_features_labs.extend(['eda_qa_slope', 'eda_qa_min', 'eda_qa_max', 'window'])
+			eda_features_labs.extend(['eda_qa_slope', 'eda_qa_min', 'eda_qa_max', 'eda_window'])
 			eda_features_times.extend([chunk_start] * 4)
 			eda_features.extend([feat_eda_slope, feat_eda_min, feat_eda_max, window])
 
 		else: # log that file was empty or poor quality
-			eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range', 'eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range', 'eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc', 'eda_qa_slope', 'eda_qa_min', 'eda_qa_max', 'window'])
+			eda_features_labs.extend(['eda_tonic_mean', 'eda_tonic_sd', 'eda_tonic_range', 'eda_phasic_mean', 'eda_phasic_sd', 'eda_phasic_range', 'eda_phasic_magnitude', 'eda_phasic_duration', 'eda_phasic_number', 'eda_phasic_auc', 'eda_qa_slope', 'eda_qa_min', 'eda_qa_max', 'eda_window'])
 			eda_features_times.extend([chunk_start] * 14)
 			if (len(eda_signal) < ((window*60*sfreq)/2)) or (numpy.mean(eda_signal) < 0.02):
 				eda_features.extend(['qa_fail']*14)
@@ -1158,10 +1158,10 @@ def features_hr_from_raw(raw, channel_name, device='emp', window=10, app_data=No
 			hr_trunc  = hr_trunc.tolist()
 			# add features to list
 			hr_features.extend(hr_trunc)
-			hr_features_labs.extend(['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF', 'Max', 'Min', 'window'])
+			hr_features_labs.extend(['hr_bpm', 'hr_rmssd', 'hr_sdnn', 'hr_sdsd', 'hr_pnn20', 'hr_pnn50', 'hr_hf', 'hr_max', 'hr_min', 'hr_window'])
 			hr_features_times.extend([chunk_start]*10)
 		except:
-			hr_features_labs.extend(['BPM', 'RMSSD', 'SDNN', 'SDSD', 'pNN20', 'pNN50', 'HF', 'Max', 'Min', 'window'])
+			hr_features_labs.extend(['hr_bpm', 'hr_rmssd', 'hr_sdnn', 'hr_sdsd', 'hr_pnn20', 'hr_pnn50', 'hr_hf', 'hr_max', 'hr_min', 'hr_window'])
 			hr_features_times.extend([chunk_start]*10)
 			hr_features.extend(['nan'] * 10)
 
@@ -1221,11 +1221,11 @@ def features_temp_from_raw(raw, channel_name, device='emp', window=10, app_data=
 		if (temp_max < 45) and (temp_min > 15):
 			# add features to list
 			temp_features.extend([temp_mean, temp_min, temp_max, temp_slope, window])
-			temp_labs.extend(['temp_mean', 'temp_min', 'temp_max', 'temp_slope', 'window'])
+			temp_labs.extend(['temp_mean', 'temp_min', 'temp_max', 'temp_slope', 'temp_window'])
 			temp_times.extend([chunk_start]*5)
 		else:
 			temp_features.extend(['qa_fail','qa_fail', 'qa_fail', 'qa_fail', window])
-			temp_labs.extend(['temp_mean', 'temp_min', 'temp_max', 'temp_slope', 'window'])
+			temp_labs.extend(['temp_mean', 'temp_min', 'temp_max', 'temp_slope', 'temp_window'])
 			temp_times.extend([chunk_start]*5)
 
 	# convert to df
@@ -1442,7 +1442,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 
 		time_list.extend([chunk_start] * 13)
 		header_list.extend(
-			['apl_window','step_count', 'apl_per_sedentary', 'apl_per_standing', 'apl_per_stepping', 'apl_per_cycling', 'apl_per_laying',
+			['apl_window','apl_step_count', 'apl_per_sedentary', 'apl_per_standing', 'apl_per_stepping', 'apl_per_cycling', 'apl_per_laying',
 			 'apl_per_lay_prim', 'apl_per_lay_second', 'apl_per_nonwear', 'apl_per_travel', 'apl_bout_yn', 'apl_bout_length_s'])
 		feature_list.extend(
 			[window, wind_step_count, code_0, code_1, code_2, code_2_1, code_3, code_3_1, code_3_2, code_4, code_5, movement_bout, bout_length])
