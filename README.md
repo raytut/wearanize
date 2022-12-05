@@ -1,5 +1,5 @@
 # wearanize
-This is the Standard Operating Procedure (SOP) outlining the steps carried out for the processing of the wearable data collected from the [Healthy Brain Study]([Protocol of the Healthy Brain Study: An accessible resource for understanding the human brain and how it dynamically and individually operates in its bio-social context | PLOS ONE](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0260952)). This SOP serves to instruct researchers on how to run the analysis for this data, starting with the preprocessing using proprietary software and scripts, to using the **Wearanize** package developed for the integration of the different data streams. It also serves as an explanation to what steps are carried out to process the data.
+This is the Standard Operating Procedure (SOP) outlining the steps carried out for the processing of the wearable data collected from the [Healthy Brain Study](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0260952). This SOP serves to instruct researchers on how to run the analysis for this data, starting with the preprocessing using proprietary software and scripts, to using the **Wearanize** package developed for the integration of the different data streams. It also serves as an explanation to what steps are carried out to process the data.
 
 ```mermaid
 %%{init: {'theme': 'neutral'}}%%
@@ -32,7 +32,7 @@ end
 Having the correct environment is necessary for carrying out all processing steps for this data. We recommend the creation of a virtual python environment (for example, using Anaconda) to make sure the work is reproducible. To this end, we specify the required software below:
 
 - Python 3.9>
-- Hydnodyne Software for ZMAX ([https://hypnodynecorp.com/downloads.php](https://hypnodynecorp.com/downloads.php))
+- Hydnodyne Software for [ZMAX](https://hypnodynecorp.com/downloads.php)
 - Wearanize  (i.e., this repository)
 
 Note For DCCN: that the Hypnodyne software is available on windows PCs via the DCCN software center. 
@@ -104,7 +104,7 @@ Synchronization is currently carried out using the recorded time stamps of the d
 
 ## 3.1. Data conversion
 
-We have taken the MNE Raw format as the default format for all our data. More information on the MNE format can be found [here]([MNE — MNE 1.2.2 documentation](https://mne.tools/stable/index.html)). For each data stream (Empatica, Zmax, and ActivPal), data is converted into this raw format, which contains all channels of the data with sampling rates and date information stored as a header. For each data type, a custom function has been created to convert the data to this format.
+We have taken the MNE Raw format as the default format for all our data. More information on the MNE format can be found [here](https://mne.tools/stable/index.html). For each data stream (Empatica, Zmax, and ActivPal), data is converted into this raw format, which contains all channels of the data with sampling rates and date information stored as a header. For each data type, a custom function has been created to convert the data to this format.
 
 - ZMAX: read_edf_to_raw
 - E4: read_e4_to_raw
@@ -139,7 +139,7 @@ Below is a description of the processing steps and resulting features extract fr
 
 ### EDA:
 
-Electrodermal Activity (EDA) was processed from Empatica E4 following recommendation from Boucessein et al 2011. Processing was carried out using  the [PyPhysio package](https://github.com/MPBA/pyphysio). Data was first resampled to 8Hz and linear interpolation, before having spikes removed via a derivative function. A Kalman filter was used to denoise the data, based on findings from [Tronston et al, 2015]([Model- based filtering for artifact and noise suppression with state estimation for electrodermal activity measurements in real time | IEEE Conference Publication | IEEE Xplore](https://ieeexplore.ieee.org/document/7318961)). A Bateman function was used to deconvolve the EDA signal, allowing the estimation of phasic and tonic components of the signal.
+Electrodermal Activity (EDA) was processed from Empatica E4 following recommendation from Boucessein et al 2011. Processing was carried out using  the [PyPhysio package](https://github.com/MPBA/pyphysio). Data was first resampled to 8Hz and linear interpolation, before having spikes removed via a derivative function. A Kalman filter was used to denoise the data, based on findings from [Tronston et al, 2015](https://ieeexplore.ieee.org/document/7318961). A Bateman function was used to deconvolve the EDA signal, allowing the estimation of phasic and tonic components of the signal.
 
 The following features were estimated from the tonic responses: 
 
@@ -161,7 +161,7 @@ The following quality metrics were derived for the EDA:
 
 ### ACC:
 
-3-axis accelerometer data is estimated based on [Zhu et. al 2017]([Feature extraction for robust physical activity recognition | SpringerLink](https://link.springer.com/article/10.1186/s13673-017-0097-2)), which offers a large set of features that have been used for recognition of physical activity. The features are listed below, and are derived for each of the X, Y, and Z axes:
+3-axis accelerometer data is estimated based on [Zhu et. al 2017](https://link.springer.com/article/10.1186/s13673-017-0097-2), which offers a large set of features that have been used for recognition of physical activity. The features are listed below, and are derived for each of the X, Y, and Z axes:
 
 - XYZ (3 signals): Original accelerometer signals.
 - Mag (1 signal): Magnitude signal computed from the previous three signals. This magnitude is computed as the square root of the sum of squared components (accelerometer signals).
@@ -186,7 +186,7 @@ The set of features that were estimated from the time domain signals are:
 
 ### Heart Rate:
 
-HR was estimated from BVP signals using the package [RapidHRV]([RapidHRV: an open-source toolbox for extracting heart rate and heart rate variability - PubMed (nih.gov)](https://pubmed.ncbi.nlm.nih.gov/35345583/)). Data was resampled to 32HZ, and Bandpass filtering (highpass=0.06 and lowpass=8) was applied. A 1-second sliding time window was used to estimate heart rate continuously, using moderate outlier detection as defined by RapidHRV, with a peak threshold of 30 for beat detection. Outliers were removed through truncation. The following features were then extracted:
+HR was estimated from BVP signals using the package [RapidHRV](https://pubmed.ncbi.nlm.nih.gov/35345583/). Data was resampled to 32HZ, and Bandpass filtering (highpass=0.06 and lowpass=8) was applied. A 1-second sliding time window was used to estimate heart rate continuously, using moderate outlier detection as defined by RapidHRV, with a peak threshold of 30 for beat detection. Outliers were removed through truncation. The following features were then extracted:
 
 Time-Domain:
 
@@ -239,7 +239,7 @@ We additionally estimate other features. Using the first cumulative step count v
 
 The results of the feature extractions are data frames that contain extracted features that can be used by researchers. All features are extracted from averages within mindows, unless they contain maxima or minima. Prefixes determine what kind of data the feature was extract from as follows:
 
-- **hr_***:** Heart rate from blood volume pulse. More details on the different heart rate measures can be found [here]([An Overview of Heart Rate Variability Metrics and Norms - PMC (nih.gov)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5624990/)).
+- **hr_***:** Heart rate from blood volume pulse. More details on the different heart rate measures can be found [here](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5624990/).
 - **eda_phasic_***:** Phasic component of the electrodermal activity. Measures here estimate non-specific skin conductance responses, which are an indicator of ANS activity.
 - **eda_tonic_***:** Tonic component of the electrodermal activity. Indicates the average skin conductance levels during this period.
 - **temp_***:** External skin based temperature features.
