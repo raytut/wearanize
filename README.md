@@ -248,16 +248,18 @@ The results of the feature extractions are data frames that contain extracted fe
 
 | Variable Name | Definition |
 | --- | --- |
-| time | Date time variable, to be deprecated |
+| start_time | Start time of window used for processing |
+| week_number | Randomized week number, used to anonymize data. Indicates if data occurred in different weeks. |
+| week_day | Week day variable (1-7). 1=Monday and 7=Sunday |
 | hr_bpm | Average beats per minute in window |
 | hr_hf | High frequency HR component |
 | hr_max | Maximum heart rate (truncated) |
 | hr_min | Minimum heart rate (truncated) |
-| hr_rmssd | Root mean squared of successive differences |
-| hr_sdnn | Standard deviation of NN intervals |
-| hr_sdsd | Standard deviation of RR intervals |
-| hr_pnn20 | Percentage of successive RR intervals that differ by more than 20 ms |
-| hr_pnn50 | Percentage of successive RR intervals that differ by more than 50 ms |
+| hr_rmssd | Root mean squared of successive differences (truncated) |
+| hr_sdnn | Standard deviation of NN intervals (truncated) |
+| hr_sdsd | Standard deviation of RR intervals (truncated) |
+| hr_pnn20 | Percentage of successive RR intervals that differ by more than 20 ms (truncated) |
+| hr_pnn50 | Percentage of successive RR intervals that differ by more than 50 ms (truncated) |
 | hr_window | Window length which averages were estimated in |
 | eda_phasic_auc | Area under the curve of phasic SCRs |
 | eda_phasic_duration | Duration of SCRs |
