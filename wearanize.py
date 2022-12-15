@@ -1621,9 +1621,9 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 			elif 'apl' in devices:
 				out_df = apl_df
 
-		# make random time for anonimization
+		# make random dates and times for anonimization
 		random_time = numpy. random.randint(-5, 5, 1)[0]
-
+		random_week = numpy.random.randint(-20, 20, 1)[0]
 		# merge to app data if specified and randomize timestamps
 		if (app_data == True) & (app_file_stat == 'found'):
 
@@ -1633,23 +1633,39 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 
 			# anonymize app time stamps
 			if anon_datetime == True:
-				# round the seconds down, then keep the time
+				# convert to datetimes and round the seconds down, then keep the time
 				out_df['EMA_timestamp__start_beep_'] = pandas.to_datetime(out_df['EMA_timestamp__start_beep_']).dt.floor('T')
-				out_df['EMA_timestamp__start_beep_'] = out_df['EMA_timestamp__start_beep_']  + pandas.Timedelta(minutes=random_time)
 				out_df['EMA_timestamp_end_beep_'] = pandas.to_datetime(out_df['EMA_timestamp_end_beep_']).dt.floor('T')
-				out_df['EMA_timestamp_end_beep_'] =  out_df['EMA_timestamp_end_beep_'] + pandas.Timedelta(minutes=random_time)
+				# Anonymize week numbers
+				out_df['week_number'] = out_df['EMA_timestamp__start_beep_'].dt.isocalendar().week + random_week
+				# keep week day variable as is
+				out_df['week_day'] = out_df['EMA_timestamp__start_beep_'].dt.isocalendar().day
+				# anonymize beep start time, and keep only the time. Do same for beep end time
+				out_df['start_time']  = out_df['EMA_timestamp__start_beep_'] + pandas.Timedelta(minutes=random_time)
+				out_df['start_time'] = out_df['start_time'].dt.time
+				out_df['end_time']  = out_df['EMA_timestamp_end_beep_']  + pandas.Timedelta(minutes=random_time)
+				out_df['end_time'] = out_df['end_time'].dt.time
+				# drop the original datetimes
+				out_df = out_df.drop(['EMA_timestamp__start_beep_','EMA_timestamp_end_beep_'], axis=1)
+				out_df = out_df.reset_index(drop=True)
 			extraction_stat = 'success'
 		elif (app_data==True) & (app_file_stat == 'missing'):
 				extraction_stat = 'missing app file'
 
 		# anonimize index
-		if anon_datetime == True:
-			out_df = out_df.set_index(pandas.to_datetime(out_df.index).floor('T') + pandas.Timedelta(minutes=random_time))
+		if (app_data == False) & (anon_datetime == True):
+			out_df= out_df.set_index(pandas.to_datetime(out_df.index).floor('T') + pandas.Timedelta(minutes=random_time))
+			out_df['start_time'] = out_df.index
+			out_df['week_number'] = out_df['start_time'].dt.isocalendar().week + random_week
+			out_df['week_day'] = out_df['start_time'].dt.isocalendar().day
+			out_df['start_time'] = out_df['start_time'].dt.time
+			out_df = out_df.reset_index(drop=True)
 
 		# save or return
 		if output == True:
 			if len(out_df.index) > 0:
-				out_df.to_csv(output_file, sep='\t')
+				output_file = output_file + '.zip'
+				out_df.to_csv(output_file, sep=',', compression='zip')
 				extraction_stat = 'success'
 			else:
 				extraction_stat = 'fail'
