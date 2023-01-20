@@ -1,4 +1,4 @@
-# Wearanize
+# [Wearanize](https://github.com/raytut/wearanize/blob/master/snippets/Wearanize.png)
 This is the Standard Operating Procedure (SOP) outlining the steps carried out for the processing of the wearable data collected from the [Healthy Brain Study](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0260952). This SOP serves to instruct researchers on how to run the analysis for this data, starting with the preprocessing using proprietary software and scripts, to using the **Wearanize** package developed for the integration of the different data streams. It also serves as an explanation to what steps are carried out to process the data.
 
 ```mermaid
