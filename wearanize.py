@@ -1628,25 +1628,25 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 		if (app_data == True) & (app_file_stat == 'found'):
 
 			app_df = app_to_long(app_file)
-			app_df = app_df.set_index(pandas.to_datetime(app_df['EMA_timestamp__start_beep_']))
+			app_df = app_df.set_index(pandas.to_datetime(app_df[app_starttime]))
 			out_df = pandas.merge(app_df, out_df, left_index=True, right_index=True, how='outer')
 
 			# anonymize app time stamps
 			if anon_datetime == True:
 				# convert to datetimes and round the seconds down, then keep the time
-				out_df['EMA_timestamp__start_beep_'] = pandas.to_datetime(out_df['EMA_timestamp__start_beep_']).dt.floor('T')
-				out_df['EMA_timestamp_end_beep_'] = pandas.to_datetime(out_df['EMA_timestamp_end_beep_']).dt.floor('T')
+				out_df[app_starttime] = pandas.to_datetime(out_df[app_starttime]).dt.floor('T')
+				out_df[app_endtime] = pandas.to_datetime(out_df[app_endtime]).dt.floor('T')
 				# Anonymize week numbers
-				out_df['week_number'] = out_df['EMA_timestamp__start_beep_'].dt.isocalendar().week + random_week
+				out_df['week_number'] = out_df[app_starttime].dt.isocalendar().week + random_week
 				# keep week day variable as is
-				out_df['week_day'] = out_df['EMA_timestamp__start_beep_'].dt.isocalendar().day
+				out_df['week_day'] = out_df[app_starttime].dt.isocalendar().day
 				# anonymize beep start time, and keep only the time. Do same for beep end time
-				out_df['start_time']  = out_df['EMA_timestamp__start_beep_'] + pandas.Timedelta(minutes=random_time)
+				out_df['start_time']  = out_df[app_starttime] + pandas.Timedelta(minutes=random_time)
 				out_df['start_time'] = out_df['start_time'].dt.time
-				out_df['end_time']  = out_df['EMA_timestamp_end_beep_']  + pandas.Timedelta(minutes=random_time)
+				out_df['end_time']  = out_df[app_endtime]  + pandas.Timedelta(minutes=random_time)
 				out_df['end_time'] = out_df['end_time'].dt.time
 				# drop the original datetimes
-				out_df = out_df.drop(['EMA_timestamp__start_beep_','EMA_timestamp_end_beep_'], axis=1)
+				out_df = out_df.drop([app_starttime, app_endtime], axis=1)
 				out_df = out_df.reset_index(drop=True)
 			extraction_stat = 'success'
 		elif (app_data==True) & (app_file_stat == 'missing'):
