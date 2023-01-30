@@ -398,7 +398,7 @@ def raw_zmax_data_quality(raw):
 		# the last second of Battery voltage
 		quality = None
 		try:
-			quality = statistics.mean(raw.get_data(picks=['BATT'])[-256:])
+			quality = numpy.mean(raw.get_data(picks=['BATT'])[-256:])
 		except:
 			pass
 		return quality
