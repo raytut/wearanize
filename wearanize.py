@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Copyright 2022, Frederik D. Weber
+Copyright 2022, Frederik D. Weber, Rayyan Tutunji
 
 Notes:
 
@@ -484,7 +484,7 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 	df_csv_in.reset_index()  # make sure indexes pair with number of rows
 
 	with open(filepath_csv_out, 'w', newline='') as csvfile2:
-		writer = csv.writer(csvfile2, delimiter=',', quoting=csv.QUOTE_NONNUMERIC, escapechar='\\')
+		writer = csv.writer(csvfile2, delimiter='\t', quoting=csv.QUOTE_NONNUMERIC, escapechar='\\')
 
 		header_new = numpy.append(df_csv_in.columns.values, ['signal', 'rec_start_datetime', 'rec_stop_datetime', 'rec_duration_datetime', 'sampling_rate_max_Hz', 'rec_quality'])
 		writer.writerow(header_new)
@@ -505,13 +505,13 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 			try:
 				if device_wearable == 'zmx' and 'zmx' in device:
 					if session in ["1", "2", "3", "4", "5", "6", "7", "8"]:
-						raw = read_edf_to_raw_zipped(filepath_full, format="zmax_edf", zmax_ppgparser=zmax_ppgparser, zmax_ppgparser_exe_path=zmax_ppgparser_exe_path, zmax_ppgparser_timeout=zmax_ppgparser_timeout)
+						raw = read_edf_to_raw_zipped(filepath_full, format="zmax_edf")
 						rec_start_datetime = raw.info['meas_date']
 						rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
 						rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
 						sampling_rate_max_Hz = raw.info['sfreq']
 						rec_quality = raw_zmax_data_quality(raw)
-						signal="zmx_all"
+						signal = "zmx_all"
 						row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 						writer.writerow(row_new)
 						
@@ -519,44 +519,50 @@ def parse_wearable_data_with_csv_annotate_datetimes(parentdirpath, filepath_csv_
 				# Make this a try, to avoid the improper files and concatenated ones
 					try: 
 						# If we cant turn into integer, its probably right	
-						session=int(session)
-						emp_zip=zipfile.ZipFile(filepath_full)
-						tzinfo=datetime.timezone(datetime.timedelta(0))
-						# Estimate different parameters per signal
-						for signal_types in ['IBI.csv','BVP.csv', 'HR.csv','EDA.csv','TEMP.csv', 'ACC.csv']:
-							raw = pandas.read_csv(emp_zip.open(signal_types))
-							if signal_types == "IBI.csv":
-								signal = signal_types.removesuffix('.csv')
-								rec_start_datetime = datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
-								rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw.iloc[-1,0]))
-								rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
-								sampling_rate_max_Hz = "custom"
-								rec_quality= raw[" IBI"].sum()/raw.iloc[-1,0]
-								row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
-								writer.writerow(row_new)
-							else:
-								signal = signal_types.removesuffix('.csv')
-								rec_start_datetime=datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
-								rec_stop_datetime = rec_start_datetime + datetime.timedelta(((((len(raw.index)-1)*(1/raw.iloc[0,0]))/60)/60)/24)
-								rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
-								sampling_rate_max_Hz=str(raw.iloc[0,0])
-								if signal=='EDA':
-									rec_quality=100-(100*(raw[0] < 0.02).sum()/(len(raw.index)-1))
-								row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
-								writer.writerow(row_new)
+						session = int(session)
+						emp_zip = zipfile.ZipFile(filepath_full)
+						tzinfo = datetime.timezone(datetime.timedelta(0))
+
+						# read e4 data as raw
+						raw = read_e4_to_raw(filepath_full)
+						rec_start_datetime = raw.info['meas_date']
+						rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+						rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+						sampling_rate_max_Hz = raw.info['sfreq']
+						signal = 'e4_all'
+						# get quality based on EDA
+						raw_eda = raw.get_data('eda')[0]
+						rec_quality = 100 - (100 * (raw_eda < 0.02).sum() / (len(raw_eda)))
+						# write out to file
+						row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime,sampling_rate_max_Hz, rec_quality])
+						writer.writerow(row_new)
+
+						# also get IBI based metrics
+						raw = pandas.read_csv(emp_zip.open('IBI.csv'))
+						signal_types = "IBI.csv"
+						signal = signal_types.removesuffix('.csv')
+						rec_start_datetime = datetime.datetime.fromtimestamp(int(float(raw.columns[0])), tz=tzinfo)
+						rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw.iloc[-1,0]))
+						rec_duration_datetime=(rec_stop_datetime - rec_start_datetime)
+						sampling_rate_max_Hz = "N/A"
+						rec_quality= raw[" IBI"].sum()/raw.iloc[-1,0]
+						row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
+						writer.writerow(row_new)
+
 					except:
 						pass
 					
 				elif device_wearable == 'apl' and 'apl' in device:
-					meta, raw = load_activpal_data(filepath_full)
+					raw = read_apl_to_raw(filepath_full)
 					tz = pytz.timezone('Europe/Amsterdam')
 					# Get info
 					signal = 'apl'
-					rec_start_datetime = tz.localize(meta[5])
-					rec_stop_datetime = tz.localize(meta[6])
-					rec_duration_datetime = (rec_stop_datetime - rec_start_datetime)
-					sampling_rate_max_Hz = meta[3]
+					rec_start_datetime = raw.info['meas_date']
+					rec_stop_datetime = rec_start_datetime + datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+					rec_duration_datetime = datetime.timedelta(seconds=(raw._last_time - raw._first_time))
+					sampling_rate_max_Hz = raw.info['sfreq']
 					rec_quality = 'unretrieved'
+					# writout
 					row_new = numpy.append(row.values, [signal, rec_start_datetime, rec_stop_datetime, rec_duration_datetime, sampling_rate_max_Hz, rec_quality])
 					writer.writerow(row_new)
 				
@@ -1492,14 +1498,14 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 	output: pandas.DataFrame or csv file
 	"""
 	# make name for report file
-	start = datetime.datetime.now()
-	start = start.strftime("%Y_%m_%d_%H%M%S")
+	start_dt = datetime.datetime.now()
+	start = start_dt.strftime("%Y_%m_%d_%H%M%S")
 	device_str = '_'.join(map(str, devices))
 	sub_id = fileparts(sub_path)[1]
 	# open report file
 	error_file = open(sub_path + os.sep + 'feature_report_' + device_str + '_' + start + '.csv', 'w+')
 	writer = csv.writer(error_file, delimiter=',', quoting=csv.QUOTE_NONNUMERIC)
-	writer.writerow(['sub_id', 'date_time','week','app_file', 'device', 'output_generation'])
+	writer.writerow(['sub_id', 'date_time','week','app_file', 'device', 'data' , 'output_generation'])
 
 	for week in weeks:
 		# set directory
@@ -1674,9 +1680,9 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 
 		# write report file
 		if 'emp' in devices:
-			writer.writerow([sub_id, start, week, 'emp', app_file_stat, emp_file_stat, extraction_stat])
+			writer.writerow([sub_id, start_dt, week, 'emp', app_file_stat, emp_file_stat, extraction_stat])
 		if 'apl' in devices:
-			writer.writerow([sub_id, start, week, 'apl', app_file_stat, apl_file_stat, extraction_stat])
+			writer.writerow([sub_id, start_dt, week, 'apl', app_file_stat, apl_file_stat, extraction_stat])
 
 
 	# memory clean up
