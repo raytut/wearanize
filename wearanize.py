@@ -1553,8 +1553,9 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 				# find e4 devices file + convert to raw
 				files = find_wearable_files(sub_week, wearable='empatica')
 				file = [x for x in files if ('full') in x]
-				file = sub_week + os.sep + file[0]
-				if os.path.isfile(file):
+				# check if file exists
+				if len(file)>0:
+					file = sub_week + os.sep + file[0]
 					raw_wrb = read_e4_to_raw(file)
 					emp_file_stat = 'found'
 				else:
@@ -1566,8 +1567,9 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 				# find apl date and convert to raw
 				files = find_wearable_files(sub_week, wearable='apl')
 				file = [x for x in files if ('events') in x]
-				file = sub_week + os.sep + file[0]
-				if os.path.isfile(file):
+				# check if file exists
+				if len(file)>0:
+					file = sub_week + os.sep + file[0]
 					raw_wrb = read_apl_event_to_raw(file)
 					apl_file_stat = 'found'
 				else:
