@@ -1510,7 +1510,7 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 	for week in weeks:
 		# set directory
 		sub_week = sub_path + os.sep + week
-
+		print(sub_week)
 		# get app file if specified
 		if app_data == True:
 			app_file = glob.glob(sub_week + os.sep + 'app' +  os.sep + "*ema.csv")
