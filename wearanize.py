@@ -1462,7 +1462,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 
 
 
-def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_window=None, apl_bout=5, app_data=False, app_starttime='EMA_timestamp__start_beep_', app_endtime='EMA_timestamp_end_beep_', app_window='before', output=False, anon_datetime=True):
+def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_window=None, apl_bout=15, app_data=False, app_starttime='EMA_timestamp__start_beep_', app_endtime='EMA_timestamp_end_beep_', app_window='before', output=False, anon_datetime=True):
 	"""
 	Given a subject, and a week, implement feature extraction from sepcificed devices.
 	Parameters
@@ -1621,7 +1621,7 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 		# If using only one device
 		else:
 			# create output naming conventon
-			file_name = parse_wearable_filepath_info(file)['subject_file_id'] + '_features_' + devices[0]  +"_"+ str(window) + "min.csv"
+			file_name = fileparts(sub_path)[1] + '_features_' + devices[0]  +"_"+ str(window) + "min.csv"
 			output_file = (sub_week + os.sep + type + os.sep + file_name)
 			# what type wearable
 			if 'emp' in devices:
