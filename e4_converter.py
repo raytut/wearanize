@@ -9,7 +9,7 @@ import pandas
 import datetime
 import zipfile
 import warnings
-from zipfile import ZipFile
+from zipfile import ZipFile, Path
 import mne
 import shutil
 from joblib import Parallel, delayed
@@ -28,7 +28,15 @@ def fileparts(filepath):
 	extension = name_extension[1]
 	return path, name, extension
 
-
+# Function to check if file exists in zipfolder
+def zip_check(zip_dir, zip_file):
+	try:
+		zip_dir.getinfo(zip_file).file_size
+		file_exists = True
+		return file_exists
+	except:
+		file_exists = False
+		return file_exists
 
 # temporally concatenate e4 data and save as separate zip file in same directory
 def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
@@ -106,35 +114,37 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 
 								# Select File for single session, import as df
 								zipdir = ZipFile(k)
+								zip_exists = zip_check(zipdir, data_type)
 								# check the IBI file isnt empty
-								if zipdir.getinfo(data_type).file_size > 0:
-									# Sometime IBI files are empty, so try this instead
-									try:
-										df = pandas.read_csv(zipdir.open(data_type))
-										# Get time stamp
-										time = list(df)
-										time = time[0]
-										time = float(time)
+								if zip_exists==True:
+									if zipdir.getinfo(data_type).file_size > 0:
+										# Sometime IBI files are empty, so try this instead
+										try:
+											df = pandas.read_csv(zipdir.open(data_type))
+											# Get time stamp
+											time = list(df)
+											time = time[0]
+											time = float(time)
 
-										# Rename time column to time, data to Data
-										df = df.rename(columns={df.columns[0]: "time"})
-										df = df.rename(columns={df.columns[1]: "data"})
+											# Rename time column to time, data to Data
+											df = df.rename(columns={df.columns[0]: "time"})
+											df = df.rename(columns={df.columns[1]: "data"})
 
-										# Add the starttime from time stamp (time) to the column+Convert to datetime
-										# time=dt.datetime.fromtimestamp(time)
-										df['time'] = time + df['time']
-										df['time'] = pandas.to_datetime(df['time'], unit='s')
+											# Add the starttime from time stamp (time) to the column+Convert to datetime
+											# time=dt.datetime.fromtimestamp(time)
+											df['time'] = time + df['time']
+											df['time'] = pandas.to_datetime(df['time'], unit='s')
 
-										# Append to master data frame the clear it for memory
-										full_df = pandas.concat([full_df, df])
-										full_df = full_df.sort_values(by='time')
-										df = pandas.DataFrame()
-									except:
-										warnings.warn("Unable to open " + data_type + " for directory " + k + ". Making empty dataframe for session instead...")
-										df = pandas.DataFrame(columns=["time", "data"])
-										full_df = pandas.concat([full_df, df])
+											# Append to master data frame the clear it for memory
+											full_df = pandas.concat([full_df, df])
+											full_df = full_df.sort_values(by='time')
+											df = pandas.DataFrame()
+										except:
+											warnings.warn("Unable to open " + data_type + " for directory " + k + ". Making empty dataframe for session instead...")
+											df = pandas.DataFrame(columns=["time", "data"])
+											full_df = pandas.concat([full_df, df])
 								else:
-									warnings.warn("IBI file for " + k + ' is empty. Making empty dataframe and skipping.')
+									warnings.warn("IBI file for " + k + ' is empty or does not exist. Making empty dataframe and skipping.')
 									df = pandas.DataFrame(columns=["time", "data"])
 									full_df = pandas.concat([full_df, df])
 
