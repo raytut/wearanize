@@ -246,60 +246,60 @@ The results of the feature extractions are data frames that contain extracted fe
 - **acc_mag/x/y/z_***:** Features from combined 3-axis accelerometer, and for each of the individual axes (x, y, z). The same features are extracted for all four measures (i.e., the combined measure, and for each axis). Only one set of features is presented below as an example for brevity. Replacing *********mag********* with either **x, y, or z** will give you the variable names for the individual axes. These same features are also estimated for the derivatives of the motion parameters, which have the addition of **acc_mag_deriv_***,** etc…
 - **apl_***:** Features extracted from the Activpal events file.
 
-| Variable Name | Definition |
-| --- | --- |
-| start_time | Start time of window used for processing |
-| week_number | Randomized week number, used to anonymize data. Indicates if data occurred in different weeks. |
-| week_day | Week day variable (1-7). 1=Monday and 7=Sunday |
-| hr_bpm | Average beats per minute in window |
-| hr_hf | High frequency HR component |
-| hr_max | Maximum heart rate (truncated) |
-| hr_min | Minimum heart rate (truncated) |
-| hr_rmssd | Root mean squared of successive differences (truncated) |
-| hr_sdnn | Standard deviation of NN intervals (truncated) |
-| hr_sdsd | Standard deviation of RR intervals (truncated) |
-| hr_pnn20 | Percentage of successive RR intervals that differ by more than 20 ms (truncated) |
-| hr_pnn50 | Percentage of successive RR intervals that differ by more than 50 ms (truncated) |
-| hr_window | Window length which averages were estimated in |
-| eda_phasic_auc | Area under the curve of phasic SCRs |
-| eda_phasic_duration | Duration of SCRs |
-| eda_phasic_magnitude | Magnitude of SCRs |
-| eda_phasic_mean | Mean of Phasic levels |
-| eda_phasic_number | Number of SCR responses |
-| eda_phasic_range | Range of SCR responses |
-| eda_phasic_sd | SD of SCR responses |
-| eda_qa_max | Maximum SC levels (for quality assessments) |
-| eda_qa_min | Minimum SC levels (for quality  assessments) |
-| eda_qa_slope | Slope of SC (for quality assessments) |
-| eda_tonic_mean | Tonic SCL |
-| eda_tonic_range | Range of SCL |
-| eda_tonic_sd | SD of SCL |
-| eda_window | Window length which averages were  estimated in |
-| temp_max | Maximum skin temperature (also for  quality assessments) |
-| temp_mean | Mean skin temperature |
-| temp_min | Minimum skin temperature (also for quality assessments) |
-| temp_slope | Slope of skin temperature, a measure of change |
-| temp_window | Window length which averages were estimated in |
-| acc_SMA | Signal magnitude area |
-| acc_mag_ar_coef | First order autocorrelation coefficient for combined 3-axis movement |
-| acc_mag_energy | Signal energy |
-| acc_mag_entropy | Signal entropy |
-| acc_mag_iqr | Inter-quartile range of derivative of 3-axis movement |
-| acc_mag_maximum | Maximum movement in derivative of 3-axis movement |
-| acc_mag_mean | Average Movement of derivative of 3-axis movement |
-| acc_mag_median_abs_dev | Median absolute deviation of derivative of 3-axis movement |
-| acc_mag_minimum | Minimum movement in derivative of 3-axis movement |
-| acc_mag_sd | SD of movement in derivative of 3-axis movement |
-| apl_bout_length_s | Duration of bout if one occurred |
-| apl_bout_yn | Yes/No: Whether a bout occurred (defined as N number of continuous stepping and/or cycling |
-| apl_per_cycling | Percentage of time spent cycling |
-| apl_per_lay_prim | Percentage of time spent laying down in primary position |
-| apl_per_lay_second | Percentage of time spent laying down in secondary position |
-| apl_per_laying | Percentage of time spent laying down |
-| apl_per_nonwear | Percentage of time spent in non-wear |
-| apl_per_sedentary | Percentage of time spent sedentary |
-| apl_per_standing | Percentage of time spent standing |
-| apl_per_stepping | Percentage of time spent stepping |
-| apl_per_travel | Percentage of time spent in travel |
-| apl_window | Window used for APL data |
-| apl_step_count | Number of steps taken in this window |
+| Variable Name | Unit | Description |
+| --- | --- | --- |
+| start_time | Time  | Start time of window used for processing |
+| week_number | Numeric | Randomized week number, used to anonymize data. Indicates if data occurred in different weeks. |
+| week_day | Day | Week day variable (1-7). 1=Monday and 7=Sunday |
+| hr_bpm | BPM | Average beats per minute in window |
+| hr_hf | Hz | High frequency HR component |
+| hr_max | ms | Maximum heart rate (truncated) |
+| hr_min | ms | Minimum heart rate (truncated) |
+| hr_rmssd | ms | Root mean squared of successive differences (truncated) |
+| hr_sdnn | ms | Standard deviation of NN intervals (truncated) |
+| hr_sdsd | ms | Standard deviation of RR intervals (truncated) |
+| hr_pnn20 | % | Percentage of successive RR intervals that differ by more than 20 ms (truncated) |
+| hr_pnn50 | % | Percentage of successive RR intervals that differ by more than 50 ms (truncated) |
+| hr_window | minutes | Window length which averages were estimated in |
+| eda_phasic_auc | µS | Area under the curve of phasic SCRs |
+| eda_phasic_duration | sec | Duration of SCRs |
+| eda_phasic_magnitude | µS | Magnitude of SCRs |
+| eda_phasic_mean | µS | Mean of Phasic levels |
+| eda_phasic_number | n | Number of SCR responses |
+| eda_phasic_range | µS | Range of SCR responses |
+| eda_phasic_sd | µS | SD of SCR responses |
+| eda_qa_max | µS | Maximum SC levels (for quality assessments) |
+| eda_qa_min | µS | Minimum SC levels (for quality  assessments) |
+| eda_qa_slope | µS/sec | Slope of SC (for quality assessments) |
+| eda_tonic_mean | µS | Tonic SCL |
+| eda_tonic_range | µS | Range of SCL |
+| eda_tonic_sd | µS | SD of SCL |
+| eda_window | minutes | Window length which averages were  estimated in |
+| temp_max | Celsius | Maximum skin temperature (also for  quality assessments) |
+| temp_mean | Celsius | Mean skin temperature |
+| temp_min | Celsius | Minimum skin temperature (also for quality assessments) |
+| temp_slope | Celsius/sec | Slope of skin temperature, a measure of change |
+| temp_window | minutes | Window length which averages were estimated in |
+| acc_SMA | g | Signal magnitude area |
+| acc_mag_ar_coef | corr | First order autocorrelation coefficient for combined 3-axis movement |
+| acc_mag_energy | Signal energy | Signal energy |
+| acc_mag_entropy | Signal entropy | Signal entropy |
+| acc_mag_iqr | g | Inter-quartile range of derivative of 3-axis movement |
+| acc_mag_maximum | g | Maximum movement in derivative of 3-axis movement |
+| acc_mag_mean | g | Average Movement of derivative of 3-axis movement |
+| acc_mag_median_abs_dev | g | Median absolute deviation of derivative of 3-axis movement |
+| acc_mag_minimum | g | Minimum movement in derivative of 3-axis movement |
+| acc_mag_sd | g | SD of movement in derivative of 3-axis movement |
+| apl_bout_length_s | minutes | Duration of bout if one occurred |
+| apl_bout_yn | logic | Yes/No: Whether a bout occurred (defined as N number of continuous stepping and/or cycling |
+| apl_per_cycling | % | Percentage of time spent cycling |
+| apl_per_lay_prim | % | Percentage of time spent laying down in primary position |
+| apl_per_lay_second | % | Percentage of time spent laying down in secondary position |
+| apl_per_laying | % | Percentage of time spent laying down |
+| apl_per_nonwear | % | Percentage of time spent in non-wear |
+| apl_per_sedentary | % | Percentage of time spent sedentary |
+| apl_per_standing | % | Percentage of time spent standing |
+| apl_per_stepping | % | Percentage of time spent stepping |
+| apl_per_travel | % | Percentage of time spent in travel |
+| apl_window | minutes | Window used for APL data |
+| apl_step_count | count | Number of steps taken in this window |
