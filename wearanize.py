@@ -1505,7 +1505,7 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 	# open report file
 	error_file = open(sub_path + os.sep + 'feature_report_' + device_str + '_' + start + '.csv', 'w+')
 	writer = csv.writer(error_file, delimiter=',', quoting=csv.QUOTE_NONNUMERIC)
-	writer.writerow(['sub_id', 'date_time','week','app_file', 'device', 'data' , 'output_generation'])
+	writer.writerow(['sub_id', 'date_time','week','device', 'app_file', 'data' , 'output_generation'])
 
 	for week in weeks:
 		# set directory

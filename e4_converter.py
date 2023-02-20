@@ -467,7 +467,7 @@ def read_e4_concat_to_raw(e4_raw_list):
 	return mne_obj
 
 # convert e4 data to single mne raw file (flattened)
-def read_e4_to_raw(filepath, resample_Hz=32, interpolate_method='ffill'):
+def read_e4_to_raw(filepath, resample_Hz=64, interpolate_method='ffill'):
 	"""
 	Read in Empatica files to raw format with resampling for different channels
 	Parameters:
