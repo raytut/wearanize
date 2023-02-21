@@ -1582,6 +1582,7 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 			try:
 				emp_feats = list()
 				if 'hr' in channels:
+					print("Processing HR....")
 					emp_feats.extend([features_hr_from_raw(raw_wrb, channel_name='bvp', window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
 				if 'eda' in channels:
 					emp_feats.extend([features_eda_from_raw(raw_wrb, channel_name='eda', delta=0.02,	window=window, app_data=app_file, app_starttime=app_starttime, app_endtime=app_endtime, app_window=app_window)])
@@ -1608,21 +1609,11 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 		# reset raw to reduce memory
 		raw_wrb = None
 
-		# check save directory
-		if app_data == False:
-			type = 'wrb'
-		else:
-			type = 'app'
-
 		# make output depending on what data is used
 		if ('emp' in devices) & ('apl' in devices):
 			out_df = pandas.merge(emp_df, apl_df, left_index=True, right_index=True, how='outer')
-			output_file = sub_week + os.sep + type + os.sep +  fileparts(sub_path)[1] + "_features_emp_apl_" + str(window) + "min.csv"
 		# If using only one device
 		else:
-			# create output naming conventon
-			file_name = fileparts(sub_path)[1] + '_features_' + devices[0]  +"_"+ str(window) + "min.csv"
-			output_file = (sub_week + os.sep + type + os.sep + file_name)
 			# what type wearable
 			if 'emp' in devices:
 				out_df = emp_df
@@ -1633,7 +1624,7 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 		random_time = numpy. random.randint(-5, 5, 1)[0]
 		random_week = numpy.random.randint(-20, 20, 1)[0]
 		# merge to app data if specified and randomize timestamps
-		if (app_data == True) & (app_file_stat == 'found'):
+		if (app_data == True) & (app_file_stat == 'found') & ( len(out_df.index)>0) :
 
 			app_df = app_to_long(app_file)
 			app_df = app_df.set_index(pandas.to_datetime(app_df[app_starttime]))
@@ -1658,10 +1649,10 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 				out_df = out_df.reset_index(drop=True)
 			extraction_stat = 'success'
 		elif (app_data==True) & (app_file_stat == 'missing'):
-				extraction_stat = 'missing app file'
+			extraction_stat = 'fail'
 
-		# anonimize index
-		if (app_data == False) & (anon_datetime == True):
+		# anonimize index if extraction worked
+		if (app_data == False) & (anon_datetime == True) & ( len(out_df.index)>0) :
 			out_df= out_df.set_index(pandas.to_datetime(out_df.index).floor('T') + pandas.Timedelta(minutes=random_time))
 			out_df['start_time'] = out_df.index
 			out_df['week_number'] = out_df['start_time'].dt.isocalendar().week + random_week
@@ -1669,16 +1660,45 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 			out_df['start_time'] = out_df['start_time'].dt.time
 			out_df = out_df.reset_index(drop=True)
 
-		# save or return
-		if output == True:
-			if len(out_df.index) > 0:
-				output_file = output_file + '.zip'
-				out_df.to_csv(output_file, sep=',', compression='zip')
-				extraction_stat = 'success'
+		# save or return file/dataframe
+		try:
+			if output == True:
+
+				# check save directory
+				if app_data == False:
+					wrb_dir = 'wrb'
+					file_with_app = '_'
+				else:
+					wrb_dir = 'app'
+					file_with_app ='_' + app_window + '_ema_'
+
+				if len(out_df.index) > 0:
+
+					# first decide on what the output should be called
+					if ('emp' in devices) & ('apl' in devices):
+						file_naming = fileparts(find_wearable_files(sub_week, 'empatica')[0])[1]
+						file_naming = file_naming.split("_")[0]
+						output_file_name = file_naming + "_" + week + '_features' + file_with_app + "emp_" + str(window) + "min_apl_" + str(apl_window) + "min.csv"
+						output_file = sub_week + os.sep + wrb_dir + os.sep + output_file_name
+					else:
+						if devices[0] == 'emp':
+							file_naming = fileparts(find_wearable_files(sub_week, 'empatica')[0])[1]
+						else:
+							file_naming = fileparts(find_wearable_files(sub_week, 'apl')[0])[1]
+							window = apl_window
+						file_naming = file_naming.split("_")[0]
+						output_file_name = file_naming + "_" + week + '_features' + file_with_app  + devices[0] + "_" + str(window) + "min.csv"
+						output_file = (sub_week + os.sep + wrb_dir + os.sep + output_file_name)
+
+					output_file = output_file + '.zip'
+					out_df.to_csv(output_file, sep=',', compression='zip')
+					extraction_stat = 'success'
+				else:
+					extraction_stat = 'fail'
 			else:
-				extraction_stat = 'fail'
-		else:
-			return out_df
+				return out_df
+		except:
+			extraction_stat = 'fail'
 
 		# write report file
 		if 'emp' in devices:
