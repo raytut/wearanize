@@ -57,7 +57,7 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 	# Set sub nr as string
 	sub = str(sub_nr)
 	# Make array with the sessions for loop
-	sessions = glob.glob(os.path.join(project_folder, str(sub)) + os.sep + "pre-*" + os.sep + "wrb")
+	sessions = sorted(glob.glob(os.path.join(project_folder, str(sub)) + os.sep + "pre-*" + os.sep + "wrb"))
 
 	# Reset for memory
 	full_df = None
@@ -70,37 +70,40 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 		# Path with E4 files. Only run if the files exist
 		filepath = (str(session_type))
 		if os.path.isdir(filepath):
-			# check if file non existant or overwrite true
-			if (len(glob.glob(filepath + os.sep + "*emp_full.zip"))==0) or ( overwrite == True):
 
-				# Get all directories with E4 sessions for subject, merge directory from the list
-				dir_list = glob.glob(filepath + "/*wrb_emp_*.zip")
-				# Only keep the empatica folders, drop the folder with concatenated data
-				dir_list = [x for x in dir_list if "wrb_emp" in x]
-				dir_list = [x for x in dir_list if "wrb_emp_full" not in x]
+			# Get all directories with E4 sessions for subject, merge directory from the list
+			dir_list = sorted(glob.glob(filepath + "/*wrb_emp_*.zip"))
+			# Only keep the empatica folders, drop the folder with concatenated data
+			dir_list = [x for x in dir_list if "wrb_emp" in x]
+			dir_list = [x for x in dir_list if "wrb_emp_full" not in x]
 
-				# Only Run if there are recordings
-				if len(dir_list) > 0:
+			# Only Run if there are recordings
+			if len(dir_list) > 0:
 
-					# Check if merge directory (for output) exists, if not then make it
+				# Make a directory that matches the HBS format
+				session_folder, conc_file, _ = fileparts(dir_list[0])
+				conc_file = conc_file.rsplit("_", 1)[0]
+				conc_file = os.path.join(session_folder, conc_file + '_full')
+
+				# remove any potential file that was not zipped in case of crash
+				if os.path.exists(conc_file):
+					shutil.rmtree(conc_file)
+
+				# remove old zip file if available and overwrite is true
+				if overwrite==True and os.path.isfile(conc_file + '.zip'):
+					os.remove(conc_file + '.zip')
+
+				# Run concatenation
+				if (len(glob.glob(filepath + os.sep + "*emp_full.zip")) == 0) or (overwrite == True):
+
+					# make a fresh path to save new data in
 					try:
-						# Make a directory that matches the HBS format
-						session_folder, conc_file, _ = fileparts(dir_list[0])
-						conc_file = conc_file.rsplit("_", 1)[0]
-						conc_file = os.path.join(session_folder, conc_file + '_full')
 						os.makedirs(str(conc_file))
-					except:
-						pass
-
-					# remove old zip file if available
-					try:
-						os.remove(conc_file + '.zip')
 					except:
 						pass
 
 					# Set E4 data types for loop
 					data_types = ['EDA.csv', 'TEMP.csv', 'IBI.csv', 'BVP.csv', 'HR.csv', 'ACC.csv']
-
 					for data_type in data_types:
 
 						# Make Empty DF as master df for data type
@@ -152,8 +155,10 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 							try:
 								full_df['data'] = full_df['data'] * 1000
 							except:
-								warnings.warn("Unable to convert IBI to milliseconds for " + filepath)
-							full_df = full_df.sort_values('time', ascending=True)
+								warnings.warn("Unable to convert IBI to milliseconds for " + filepath + ". Likely no detected beats in file.")
+
+							if len(full_df.index > 2):
+								full_df = full_df.sort_values('time', ascending=True)
 
 							# Set Output Names and direcotries, save as csv
 							fullout = (str(conc_file) + os.sep + str(data_type))
@@ -303,11 +308,17 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 								filepath = os.path.join(root, file)
 								zf.write(filepath, filepath[len_dir_path:], compress_type=zipfile.ZIP_DEFLATED,
 										 compresslevel=6)
-					shutil.rmtree(conc_file)
+					try:
+						shutil.rmtree(conc_file)
+					except:
+						pass
 
-			# if files already made
+				# if files already made
+				else:
+					print("Overwrite set to false, skipping " + filepath + "...")
+			# warn if no recordings
 			else:
-				print("Overwrite set to false, skipping " + filepath + "...")
+				print("No E4 recordings found for " + filepath +  ". Skipping...")
 
 def e4_concatenate_par(project_folder, verbose=0, overwrite=False):
 	# Get list of subjects
