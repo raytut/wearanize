@@ -116,10 +116,10 @@ def e4_concatenate(project_folder, sub_nr, resampling=None, overwrite=False):
 							for k in dir_list:
 
 								# Select File for single session, import as df
-								zipdir = ZipFile(k)
-								zip_exists = zip_check(zipdir, data_type)
+								zip_exists = zip_check(k, data_type)
 								# check the IBI file isnt empty
 								if zip_exists==True:
+									zipdir = ZipFile(k)
 									if zipdir.getinfo(data_type).file_size > 0:
 										# Sometime IBI files are empty, so try this instead
 										try:
