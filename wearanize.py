@@ -980,6 +980,9 @@ def chunk_signal_at_app(signal, channel_name, app_data, app_starttime, app_endti
 	# reformat dates
 	app_data[app_starttime] = pandas.to_datetime(app_data[app_starttime], exact=True)
 	app_data[app_endtime] = pandas.to_datetime(app_data[app_endtime], exact=True)
+	# remove any rows with misisng date times
+	#app_data = app_data[app_data[app_starttime]!=' ']
+	#app_data = app_data[app_data[app_endtime]!=' ']
 
 	# loop over time stamps and create signal chunks
 	signal_chunks = list()
