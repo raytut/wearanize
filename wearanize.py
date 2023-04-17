@@ -329,7 +329,7 @@ def merge_emp_to_apl_raw(path_to_week):
 
 	# files
 	emp_file = glob.glob(path_to_week + os.sep + "wrb/*emp_full.zip")[0]
-	apl_file = glob.glob(path_to_week + os.sep + "wrb/*_events.csv")[0]
+	apl_file = glob.glob(path_to_week + os.sep + "wrb/*apl-evs.csv")[0]
 
 	# e4 to raw
 	emp_raw = read_e4_to_raw(emp_file)
@@ -1394,7 +1394,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 		signal_chunks_list = chunk_signal(df_apl, sfreq, window)
 		time_chunks_list = chunk_signal(df_apl.index, sfreq, window)
 	else:
-		signal_chunks_list, time_chunks_list = chunk_signal_at_app(df_apl, channel_name='APActivity_code',
+		signal_chunks_list, time_chunks_list = chunk_signal_at_app(df_apl, channel_name='ActivityCode',
 																   app_data=app_data, app_starttime=app_starttime,
 																   app_endtime=app_endtime, app_window=app_window,
 																   window=window)
@@ -1417,19 +1417,21 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 
 		# estimate percent in:
 		# Activity codes: 0=sedentary 1=standing 2=stepping 2.1=cycling 3.1=primary lying, 3.2=secondary lying 4=non-wear 5=travelling
-		code_0 = len(signal_chunk[signal_chunk['APActivity_code'] == 0]) / len(signal_chunk) * 100  # sedentary
-		code_1 = len(signal_chunk[signal_chunk['APActivity_code'] == 1]) / len(signal_chunk) * 100  # standing
-		code_2 = len(signal_chunk[signal_chunk['APActivity_code'] == 2]) / len(signal_chunk) * 100  # stepping
-		code_2_1 = len(signal_chunk[signal_chunk['APActivity_code'] == 2.1]) / len(signal_chunk) * 100  # cycling
-		code_3 = len(signal_chunk[signal_chunk['APActivity_code'] == 3]) / len(signal_chunk) * 100  # laying
-		code_3_1 = len(signal_chunk[signal_chunk['APActivity_code'] == 3.1]) / len(signal_chunk) * 100  # laying prim
-		code_3_2 = len(signal_chunk[signal_chunk['APActivity_code'] == 3.2]) / len(signal_chunk) * 100  # laying second
-		code_4 = len(signal_chunk[signal_chunk['APActivity_code'] == 4]) / len(signal_chunk) * 100  # non-wear
-		code_5 = len(signal_chunk[signal_chunk['APActivity_code'] == 5]) / len(signal_chunk) * 100  # travelling
-
+		code_0 = len(signal_chunk[signal_chunk['ActivityCode'] == 0]) / len(signal_chunk) * 100  # sedentary
+		code_1 = len(signal_chunk[signal_chunk['ActivityCode'] == 1]) / len(signal_chunk) * 100  # standing
+		code_2 = len(signal_chunk[signal_chunk['ActivityCode'] == 2]) / len(signal_chunk) * 100  # stepping
+		code_2_1 = len(signal_chunk[signal_chunk['ActivityCode'] == 2.1]) / len(signal_chunk) * 100  # cycling
+		code_3 = len(signal_chunk[signal_chunk['ActivityCode'] == 3]) / len(signal_chunk) * 100  # laying
+		code_3_2 = len(signal_chunk[signal_chunk['ActivityCode'] == 3.2]) / len(signal_chunk) * 100  # laying second
+		code_3_1 = len(signal_chunk[signal_chunk['ActivityCode'] == 3.1]) / len(signal_chunk) * 100  # laying prim
+		code_4 = len(signal_chunk[signal_chunk['ActivityCode'] == 4]) / len(signal_chunk) * 100  # non-wear
+		code_5 = len(signal_chunk[signal_chunk['ActivityCode'] == 5]) / len(signal_chunk) * 100  # non-wear
 		# step count
-		wind_step_count = signal_chunk.APCumulativeStepCount[len(signal_chunk)-1] - signal_chunk.APCumulativeStepCount[0]
-
+		wind_step_count = signal_chunk.CumulativeStepCount[len(signal_chunk)-1] - signal_chunk.CumulativeStepCount[0]
+		# xyz mags
+		acc_x = numpy.mean(signal_chunk['Sum(Abs(DiffX)'])
+		acc_y = numpy.mean(signal_chunk['Sum(Abs(DiffY)'])
+		acc_z = numpy.mean(signal_chunk['Sum(Abs(DiffZ)'])
 		# estimate bouts in window
 		movement_bout = 'no'
 		bout_length = 0
@@ -1437,7 +1439,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 			j = 0
 			bout_duration_s = int(bout_duration * 60 )
 			while (j + (bout_duration_s) <= len(signal_chunk)):
-				bout = signal_chunk['APActivity_code'][j:(j + bout_duration_s)]
+				bout = signal_chunk['ActivityCode'][j:(j + bout_duration_s)]
 				bout = bout.round()
 				if (len(bout.unique()) == 1) and (round(bout.unique()[0]) == 2):
 					movement_bout = 'yes'
@@ -1449,12 +1451,12 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 		else:
 			movement_bout = 'window too short'
 
-		time_list.extend([chunk_start] * 13)
+		time_list.extend([chunk_start] * 16)
 		header_list.extend(
 			['apl_window','apl_step_count', 'apl_per_sedentary', 'apl_per_standing', 'apl_per_stepping', 'apl_per_cycling', 'apl_per_laying',
-			 'apl_per_lay_prim', 'apl_per_lay_second', 'apl_per_nonwear', 'apl_per_travel', 'apl_bout_yn', 'apl_bout_length_s'])
+			 'apl_per_lay_prim', 'apl_per_lay_second', 'apl_per_nonwear', 'apl_per_travel', 'apl_bout_yn', 'apl_bout_length_s', 'apl_mag_x', 'apl_mag_y', 'apl_mag_z'])
 		feature_list.extend(
-			[window, wind_step_count, code_0, code_1, code_2, code_2_1, code_3, code_3_1, code_3_2, code_4, code_5, movement_bout, bout_length])
+			[window, wind_step_count, code_0, code_1, code_2, code_2_1, code_3, code_3_1, code_3_2, code_4, code_5, movement_bout, bout_length, acc_x, acc_y, acc_z])
 
 	# convert to df for output
 	apl_df_full = {'time': time_list, 'feature': header_list, 'apl': feature_list}
@@ -1543,7 +1545,7 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 				else:
 					emp_file_stat = 'missing'
 				file_check = find_wearable_files(sub_week, wearable='apl')
-				file_check = [x for x in file_check if ('events') in x]
+				file_check = [x for x in file_check if ('evs.csv') in x]
 				if len(file_check)>0:
 					apl_file_stat = 'found'
 				else:
@@ -1569,7 +1571,7 @@ def sub_feature_extraction(sub_path, weeks, devices, channels, window=10, apl_wi
 			if 'apl' in devices:
 				# find apl date and convert to raw
 				files = find_wearable_files(sub_week, wearable='apl')
-				file = [x for x in files if ('events') in x]
+				file = [x for x in files if ('apl-evs') in x]
 				# check if file exists
 				if len(file)>0:
 					file = sub_week + os.sep + file[0]
