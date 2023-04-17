@@ -410,31 +410,30 @@ def read_apl_event_to_raw(filepath, resample_Hz=1):
 	# Read file
 	df_apl = pandas.read_csv(filepath)
 	try:
-		df_apl.APDatetimevar = df_apl.APDatetimevar.apply(xlrd.xldate_as_datetime, convert_dtype=True, datemode=0)
-		df_apl['APDatetimevar'] = df_apl['APDatetimevar'].apply(lambda x: pytz.timezone('Europe/Amsterdam').localize(x))
-		df_apl = df_apl.set_index(df_apl.APDatetimevar)
+		df_apl.Time = df_apl.Time.apply(xlrd.xldate_as_datetime, convert_dtype=True, datemode=0)
+		df_apl['Time'] = df_apl['Time'].apply(lambda x: pytz.timezone('Europe/Amsterdam').localize(x))
+		df_apl = df_apl.set_index(df_apl.Time)
 	#	df_apl.index = df_apl.index.tz_localize(tz='Europe/Amsterdam')
 	except:
 		warnings.warn("Initial APL reading failed. Removing first line and retrying...")
 		df_apl = df_apl.iloc[1:, :]
 		# Localize datetime values to US/Eastern timezone
-		df_apl.APDatetimevar = df_apl.APDatetimevar.apply(xlrd.xldate_as_datetime, convert_dtype=True, datemode=0)
-		df_apl['APDatetimevar'] = df_apl['APDatetimevar'].apply(lambda x: pytz.timezone('Europe/Amsterdam').localize(x))
-		df_apl = df_apl.set_index(df_apl.APDatetimevar)
+		df_apl.Time = df_apl.Time.apply(xlrd.xldate_as_datetime, convert_dtype=True, datemode=0)
+		df_apl['Time'] = df_apl['APDatetimevar'].apply(lambda x: pytz.timezone('Europe/Amsterdam').localize(x))
+		df_apl = df_apl.set_index(df_apl.Time)
 		#df_apl.index = df_apl.index.tz_localize(tz='Europe/Amsterdam')
 	# resample
 	samp_time = 1/resample_Hz
 	samp_str = str(samp_time) + 'S'
 	df_apl = df_apl.resample(samp_str).ffill()
 	df_apl = df_apl.bfill()
-	df_apl['time'] = df_apl.index
-
 	# subset relevant cols
-	df_apl = df_apl.iloc[:,3:7]
+	df_apl = df_apl.iloc[:,1:9]
 
 	# set info for raw conversion
 	apl_start = df_apl.index[0]
 	apl_head = list(df_apl.columns)
+	apl_head[2] = 'ActivityCode'
 	apl_np = df_apl.to_numpy().transpose()
 
 	# convert to raw
