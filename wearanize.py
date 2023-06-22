@@ -1012,7 +1012,7 @@ def chunk_signal_at_app(signal, channel_name, app_data, app_starttime, app_endti
 
 		# subset temp dataframe from window and add to a list
 		signal_temp = signal[(signal['time'] > t1) & (signal['time'] < t2)]
-		if channel_name != 'APActivity_code':
+		if channel_name != 'ActivityCode':
 			signal_temp = signal_temp[channel_name]
 		signal_chunks.extend([signal_temp])
 		time_chunks.extend([start_time])
@@ -1400,7 +1400,6 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 																   window=window)
 
 	# extract features
-
 	time_list = list()
 	header_list = list()
 	feature_list = list()
@@ -1413,6 +1412,7 @@ def features_apl_from_events(apl_events, window=10, bout_duration=10, app_data=N
 			chunk_start = time_chunks_list[i]
 
 		# resample to 1 HZ
+		signal_chunk = signal_chunk.set_index('time')
 		signal_chunk = signal_chunk.resample('1S').mean()
 
 		# estimate percent in:

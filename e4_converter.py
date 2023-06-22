@@ -443,7 +443,7 @@ def read_e4_raw_to_df(raw):
 		e4_df.time = e4_df.time.round('ms')
 	e4_df = e4_df.set_index(e4_df.time, drop=True)
 
-	# resample to expand missing windows
+
 	e4_df = e4_df.resample(sfreq_ms + "ms").ffill(limit=int(sfreq))
 	return e4_df, sfreq, sfreq_ms
 
